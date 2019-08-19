@@ -44,6 +44,7 @@ def main():
             smiles, bg, labels, mask = batch_data
             atom_feats = bg.ndata.pop(atom_data_field)
             atom_feats, labels, mask = atom_feats.to(device), labels.to(device), mask.to(device)
+            bg.edata['es'] = torch.ones((bg.number_of_edges(), 1)).to(device)
             logits = model(atom_feats, bg)
             # Mask non-existing labels
             loss = (loss_criterion(logits, labels)
@@ -62,6 +63,7 @@ def main():
             for batch_id, batch_data in enumerate(val_loader):
                 smiles, bg, labels, mask = batch_data
                 atom_feats = bg.ndata.pop(atom_data_field)
+                bg.edata['es'] = torch.ones((bg.number_of_edges(), 1)).to(device)
                 atom_feats, labels = atom_feats.to(device), labels.to(device)
                 logits = model(atom_feats, bg)
                 val_meter.update(logits, labels, mask)
@@ -77,6 +79,7 @@ def main():
     model.eval()
     for batch_id, batch_data in enumerate(test_loader):
         smiles, bg, labels, mask = batch_data
+        bg.edata['es'] = torch.ones((bg.number_of_edges(), 1)).to(device)
         atom_feats = bg.ndata.pop(atom_data_field)
         atom_feats, labels = atom_feats.to(device), labels.to(device)
         logits = model(atom_feats, bg)

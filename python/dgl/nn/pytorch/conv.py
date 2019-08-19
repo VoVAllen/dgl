@@ -117,13 +117,17 @@ class GraphConv(nn.Module):
             # mult W first to reduce the feature size for aggregation.
             feat = th.matmul(feat, self.weight)
             graph.ndata['h'] = feat
-            graph.update_all(fn.copy_src(src='h', out='m'),
+            # graph.update_all(fn.copy_src(src='h', out='m'),
+            #                  fn.sum(msg='m', out='h'))
+            graph.update_all(fn.src_mul_edge(src='h', edge='es', out='m'),
                              fn.sum(msg='m', out='h'))
             rst = graph.ndata['h']
         else:
             # aggregate first then mult W
             graph.ndata['h'] = feat
-            graph.update_all(fn.copy_src(src='h', out='m'),
+            # graph.update_all(fn.copy_src(src='h', out='m'),
+            #                  fn.sum(msg='m', out='h'))
+            graph.update_all(fn.src_mul_edge(src='h', edge='es', out='m'),
                              fn.sum(msg='m', out='h'))
             rst = graph.ndata['h']
             rst = th.matmul(rst, self.weight)

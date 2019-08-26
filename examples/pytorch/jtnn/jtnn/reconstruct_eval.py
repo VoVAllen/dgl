@@ -29,9 +29,9 @@ parser.add_option("-t", "--train", dest="train",
 parser.add_option("-v", "--vocab", dest="vocab",
                   default='vocab', help='Vocab file name')
 parser.add_option("-s", "--save_dir", dest="save_path")
-parser.add_option("-m", "--model", dest="model_path", default='/home/ubuntu/playground/dgl/examples/pytorch/jtnn/remote/results3/model.iter-2-4500')
+parser.add_option("-m", "--model", dest="model_path", default='/home/ubuntu/model.iter-8-1500')
 parser.add_option("-b", "--batch", dest="batch_size", default=40)
-parser.add_option("-w", "--hidden", dest="hidden_size", default=200)
+parser.add_option("-w", "--hidden", dest="hidden_size", default=450)
 parser.add_option("-l", "--latent", dest="latent_size", default=56)
 parser.add_option("-d", "--depth", dest="depth", default=3)
 parser.add_option("-z", "--beta", dest="beta", default=1.0)
@@ -84,28 +84,32 @@ def reconstruct():
         gt_smiles = batch['mol_trees'][0].smiles
         print(gt_smiles)
         model.move_to_cuda(batch)
-        _, tree_vec, mol_vec = model.encode(batch)
+        try:
+            _, tree_vec, mol_vec = model.encode(batch)
 
-        tree_mean = model.T_mean(tree_vec)
-        # Following Mueller et al.
-        tree_log_var = -torch.abs(model.T_var(tree_vec))
-        mol_mean = model.G_mean(mol_vec)
-        # Following Mueller et al.
-        mol_log_var = -torch.abs(model.G_var(mol_vec))
+            tree_mean = model.T_mean(tree_vec)
+            # Following Mueller et al.
+            tree_log_var = -torch.abs(model.T_var(tree_vec))
+            mol_mean = model.G_mean(mol_vec)
+            # Following Mueller et al.
+            mol_log_var = -torch.abs(model.G_var(mol_vec))
 
-        epsilon = create_var(torch.randn(1, model.latent_size // 2), False).cuda()
-        tree_vec = tree_mean + torch.exp(tree_log_var // 2) * epsilon
-        epsilon = create_var(torch.randn(1, model.latent_size // 2), False).cuda()
-        mol_vec = mol_mean + torch.exp(mol_log_var // 2) * epsilon
-        dec_smiles = model.decode(tree_vec, mol_vec)
-        print("Dec smiles")
-        print(dec_smiles)
+            epsilon = create_var(torch.randn(1, model.latent_size // 2), False).cuda()
+            tree_vec = tree_mean + torch.exp(tree_log_var // 2) * epsilon
+            epsilon = create_var(torch.randn(1, model.latent_size // 2), False).cuda()
+            mol_vec = mol_mean + torch.exp(mol_log_var // 2) * epsilon
+            dec_smiles = model.decode(tree_vec, mol_vec)
+            print("Dec smiles")
+            print(dec_smiles)
 
-        if dec_smiles == gt_smiles:
-            acc += 1
-        tot += 1
-        print(acc / tot)
-
+            if dec_smiles == gt_smiles:
+                acc += 1
+            tot += 1
+            print(acc / tot)
+        except Exception as e:
+            print("Failed to encode: {}".format(gt_smiles))
+            print(e)
+        # break
 
 if __name__ == '__main__':
     reconstruct()

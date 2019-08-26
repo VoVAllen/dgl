@@ -25,6 +25,8 @@ def _set_node_id(mol_tree, vocab):
 
     return wid
 
+import pickle
+
 class JTNNDataset(Dataset):
     def __init__(self, data, vocab, training=True):
         self.dir = get_download_dir()
@@ -45,6 +47,8 @@ class JTNNDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+    # def __getitem__(self, idx):
+        # return pickle.load(open("sdata/{}.pkl".format(idx), "rb"))
     def __getitem__(self, idx):
         smiles = self.data[idx]
         mol_tree = DGLMolTree(smiles)
@@ -79,6 +83,7 @@ class JTNNDataset(Dataset):
                 continue
             cands.extend([(cand, mol_tree, node_id)
                          for cand in node['cand_mols']])
+        
         if len(cands) > 0:
             cand_graphs, atom_x_dec, bond_x_dec, tree_mess_src_e, \
                     tree_mess_tgt_e, tree_mess_tgt_n = mol2dgl_dec(cands)
@@ -91,6 +96,7 @@ class JTNNDataset(Dataset):
             tree_mess_tgt_n = torch.zeros(0).long()
 
         # prebuild the stereoisomers
+        
         cands = mol_tree.stereo_cands
         if len(cands) > 1:
             if mol_tree.smiles3D not in cands:

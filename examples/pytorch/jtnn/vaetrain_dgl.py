@@ -12,6 +12,9 @@ from collections import deque
 import rdkit
 
 from jtnn import *
+import horovod.torch as hvd
+
+hvd.init()
 
 # torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -31,7 +34,7 @@ parser.add_option("-v", "--vocab", dest="vocab",
 parser.add_option("-s", "--save_dir", dest="save_path")
 parser.add_option("-m", "--model", dest="model_path", default=None)
 parser.add_option("-b", "--batch", dest="batch_size", default=40)
-parser.add_option("-w", "--hidden", dest="hidden_size", default=200)
+parser.add_option("-w", "--hidden", dest="hidden_size", default=450)
 parser.add_option("-l", "--latent", dest="latent_size", default=56)
 parser.add_option("-d", "--depth", dest="depth", default=3)
 parser.add_option("-z", "--beta", dest="beta", default=1.0)
@@ -39,6 +42,8 @@ parser.add_option("-q", "--lr", dest="lr", default=1e-3)
 parser.add_option("-T", "--test", dest="test", action="store_true")
 opts, args = parser.parse_args()
 
+
+torch.cuda.set_device(hvd.local_rank())
 print(opts)
 dataset = JTNNDataset(data=opts.train, vocab=opts.vocab, training=True)
 vocab = dataset.vocab
@@ -69,22 +74,30 @@ optimizer = optim.Adam(model.parameters(), lr=lr)
 scheduler = lr_scheduler.ExponentialLR(optimizer, 0.9)
 scheduler.step()
 
+hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+optimizer = hvd.DistributedOptimizer(optimizer,
+                                     named_parameters=model.named_parameters())
+
 MAX_EPOCH = 100
 PRINT_ITER = 20
 
 
 def train():
     dataset.training = True
+    train_sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset, num_replicas=hvd.size(), rank=hvd.rank())
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
+        sampler=train_sampler,
         num_workers=4,
         collate_fn=JTNNCollator(vocab, True),
         drop_last=True,
         worker_init_fn=worker_init_fn)
 
     for epoch in range(MAX_EPOCH):
+        train_sampler.set_epoch(epoch)
         word_acc, topo_acc, assm_acc, steo_acc = 0, 0, 0, 0
 
         for it, batch in enumerate(dataloader):
@@ -102,7 +115,7 @@ def train():
             assm_acc += sacc
             steo_acc += dacc
 
-            if (it + 1) % PRINT_ITER == 0:
+            if ((it + 1) % PRINT_ITER == 0)and(hvd.local_rank() == 0):
                 word_acc = word_acc / PRINT_ITER * 100
                 topo_acc = topo_acc / PRINT_ITER * 100
                 assm_acc = assm_acc / PRINT_ITER * 100
@@ -116,13 +129,15 @@ def train():
             if (it + 1) % 1500 == 0:  # Fast annealing
                 scheduler.step()
                 print("learning rate: %.6f" % scheduler.get_lr()[0])
-                torch.save(model.state_dict(),
-                           opts.save_path + "/model.iter-%d-%d" % (epoch, it + 1))
+                if (hvd.local_rank() == 0):
+                    torch.save(model.state_dict(),
+                               opts.save_path + "/model.iter-%d-%d" % (epoch, it + 1))
 
         scheduler.step()
-        print("learning rate: %.6f" % scheduler.get_lr()[0])
-        torch.save(model.state_dict(), opts.save_path +
-                   "/model.iter-" + str(epoch))
+        if (hvd.local_rank() == 0):
+            print("learning rate: %.6f" % scheduler.get_lr()[0])
+            torch.save(model.state_dict(), opts.save_path +
+                       "/model.iter-" + str(epoch))
 
 
 def test():

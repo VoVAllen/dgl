@@ -31,13 +31,13 @@ ds_list = {
     "Amazon photo": "AmazonCoBuy('photo')",
     "Coauthor cs": "Coauthor('cs')",
     "Coauthor physics": "Coauthor('physics')",
-    "GDELT": "GDELT('train')/GDELT('valid')/GDELT('test')",
-    "ICEWS18": "ICEWS18('train')/ICEWS18('valid')/ICEWS18('test')",
+    # "GDELT": "GDELT('train')/GDELT('valid')/GDELT('test')",
+    # "ICEWS18": "ICEWS18('train')/ICEWS18('valid')/ICEWS18('test')",
     "CoraFull": "CoraFull()",
 }
 
-writer = RstGridTableWriter()
-# writer = MarkdownTableWriter()
+# writer = RstGridTableWriter()
+writer = MarkdownTableWriter()
 
 extract_graph = lambda g: g if isinstance(g, DGLGraph) else g[0]
 stat_list=[]
@@ -60,6 +60,7 @@ for k,v in ds_list.items():
         "Avg. # of edges": np.mean(num_edges),
         "Node field": ', '.join(list(gg.ndata.keys())),
         "Edge field": ', '.join(list(gg.edata.keys())),
+        "Has Graph Label": not isinstance(ds[0], DGLGraph),
         # "Graph field": ', '.join(ds[0][0].gdata.keys()) if hasattr(ds[0][0], "gdata") else "",
         "Temporal": hasattr(ds, "is_temporal")
     }

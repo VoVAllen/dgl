@@ -4,6 +4,7 @@ from ..graph import DGLGraph
 from ..batched_graph import BatchedDGLGraph
 from .._ffi.object import ObjectBase, register_object
 from .._ffi.function import _init_api
+from ..base import dgl_warning
 from .. import backend as F
 
 _init_api("dgl.data.graph_serialize")
@@ -93,7 +94,7 @@ def save_graphs(filename, g_list, labels=None):
 
     >>> from dgl.data.utils import save_graphs
     >>> graph_labels = {"glabel": th.tensor([0, 1])}
-    >>> save_graphs([g1, g2], "./data.bin", graph_labels)
+    >>> save_graphs("./data.bin", [g1, g2], graph_labels)
 
     """
     if isinstance(g_list, DGLGraph):
@@ -101,7 +102,10 @@ def save_graphs(filename, g_list, labels=None):
     if (labels is not None) and (len(labels) != 0):
         label_dict = dict()
         for key, value in labels.items():
-            label_dict[key] = F.zerocopy_to_dgl_ndarray(value)
+            if F.is_tensor(value):
+                label_dict[key] = F.zerocopy_to_dgl_ndarray(value)
+            else:
+                dgl_warning("labels_dict[{}] is not a valid tensor and won't be saved.".format(key))
     else:
         label_dict = None
     gdata_list = [GraphData.create(g) for g in g_list]

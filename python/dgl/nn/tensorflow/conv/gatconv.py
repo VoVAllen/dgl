@@ -104,11 +104,8 @@ class GATConv(layers.Layer):
         el = tf.reduce_sum(feat * self.attn_l, axis=-1, keepdims=True)
         er = tf.reduce_sum(feat * self.attn_r, axis=-1, keepdims=True)
         graph.ndata.update({'ft': feat, 'el': el, 'er': er})
-        graph.edata['eee'] = tf.ones((graph.number_of_edges(), ))
         # compute edge attention
         graph.apply_edges(fn.u_add_v('el', 'er', 'e'))
-        # graph.apply_edges(lambda edges: {'e': edges.src['el']+edges.dst['er']})
-        # graph.update_all(fn.u_add_e('el', 'er', 'e'))
         e = self.leaky_relu(graph.edata.pop('e'))
         # compute softmax
         graph.edata['a'] = self.attn_drop(edge_softmax(graph, e))
@@ -123,4 +120,4 @@ class GATConv(layers.Layer):
         # activation
         if self.activation:
             rst = self.activation(rst)
-        return e
+        return rst

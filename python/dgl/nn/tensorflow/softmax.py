@@ -8,10 +8,10 @@ from ...base import ALL, is_all
 __all__ = ['edge_softmax']
 
 
-def edge_softmax_real(g, score, eids=ALL):
+def edge_softmax_real(graph, score, eids=ALL):
     if not is_all(eids):
-        g = g.edge_subgraph(eids.long())
-    g = g.local_var()
+        graph = graph.edge_subgraph(eids.long())
+    g = graph.local_var()
     g.edata['s'] = score
     g.update_all(fn.copy_e('s', 'm'), fn.max('m', 'smax'))
     g.apply_edges(fn.e_sub_v('s', 'smax', 'out'))
@@ -21,9 +21,8 @@ def edge_softmax_real(g, score, eids=ALL):
     out = g.edata['out']
 
     def edge_softmax_backward(grad_out):
-        g = g.local_var()
+        g = graph.local_var()
         # clear backward cache explicitly
-        ctx.backward_cache = None
         g.edata['out'] = out
         g.edata['grad_s'] = out * grad_out
         g.update_all(fn.copy_e('grad_s', 'm'), fn.sum('m', 'accum'))

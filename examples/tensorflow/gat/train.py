@@ -117,8 +117,8 @@ def main(args):
                 val_acc = accuracy(logits[val_mask], labels[val_mask])
             else:
                 val_acc = evaluate(model, features, labels, val_mask)
-                # if stopper.step(val_acc, model):   
-                #     break
+                if stopper.step(val_acc, model):   
+                    break
 
             print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | TrainAcc {:.4f} |"
                 " ValAcc {:.4f} | ETputs(KTEPS) {:.2f}".
@@ -126,7 +126,7 @@ def main(args):
                         val_acc, n_edges / np.mean(dur) / 1000))
 
         print()
-        model.load('es_checkpoint.pb')
+        model.load_weights('es_checkpoint.pb')
         acc = evaluate(model, features, labels, test_mask)
         print("Test Accuracy {:.4f}".format(acc))
 

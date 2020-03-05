@@ -4,6 +4,7 @@ cd ~
 cd regression
 cd dgl
 # git clone --recursive https://github.com/dmlc/dgl.git 
+git config core.filemode false
 git pull 
 git submodule init
 git submodule update --recursive

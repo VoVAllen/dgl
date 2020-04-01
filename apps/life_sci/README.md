@@ -12,6 +12,49 @@ featurization, and evaluation, model architectures, training scripts and pre-tra
 
 **For a full list of work implemented in DGL-LifeSci, see [here](examples/README.md).**
 
+## Installation
+
+### Requirements
+
+DGL-LifeSci requires python 3.6+, DGL 0.4.3+ and PyTorch 1.2.0+.
+
+Additionally, we require `RDKit 2018.09.3` for cheminformatics. We recommend installing it with
+
+```
+conda install -c conda-forge rdkit==2018.09.3
+```
+ 
+For other installation recipes for RDKit, see the [official documentation](https://www.rdkit.org/docs/Install.html).
+
+### Pip installation for DGL-LifeSci
+
+```bash
+python examples/property_prediction/classification.py -m GCN -d Tox21
+```
+pip install dgllife
+```
+
+### Installation from source
+
+If you want to try experimental features, you can install from source as follows:
+
+```
+git clone https://github.com/dmlc/dgl.git
+cd apps/life_sci/python
+python setup.py install
+```
+
+### Verifying successful installation
+
+Once you have installed the package, you can verify the success of installation with 
+
+```python
+import dgllife
+
+print(dgllife.__version__)
+# 0.2.0
+```
+
 ## Example Usage
 
 To apply graph neural networks to molecules with DGL, we need to first construct `DGLGraph` -- 
@@ -78,7 +121,8 @@ print(label_pred[:, mask != 0]) # Mask non-existing labels
 # 2.0957,  0.5919,  0.7715, 1.7273,  0.2070]])
 ```
 
-Similarly, we can load a pre-trained model for generating molecules.
+Similarly, we can load a pre-trained model for generating molecules. If possible, we recommend running 
+the code block below with Jupyter notebook.
 
 ```python
 from dgllife.model import load_pretrained

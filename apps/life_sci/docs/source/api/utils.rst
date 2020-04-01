@@ -3,7 +3,10 @@
 dgllife.utils
 ==================
 
-TBD by Murphy
+DGL provides utility functions help user writing their codes.
+
+.. contents:: Table of contents
+    :local:
 
 dgllife.utils.complex_to_graph
 -------------------------------------------

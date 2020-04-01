@@ -3,7 +3,11 @@
 dgllife.data
 ============
 
-TBD by Murphy
+DGL LifeSci provides a set of pre-defined datasets.
+
+Property prediction dataset:
+
+
 
 dgllife.data.alchemy
 --------------------

@@ -1,8 +1,9 @@
 .. _apimodelgnn:
 
-dgllife.model
+dgllife.model.load_pretrained
 ==================
 
-TBD by Murphy
+DGL LifeSci provides lots of pretrained model on several datasets.
+
 
 .. autofunction:: dgllife.model.load_pretrained

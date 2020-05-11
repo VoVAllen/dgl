@@ -1,10 +1,17 @@
 """MovieLens dataset"""
-import numpy as np
 import os
 import re
+import time
+import random
+import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import scipy.sparse as sp
+import multiprocessing as mp
 import torch as th
+from tqdm import tqdm
+import networkx as nx
+import scipy.sparse as ssp
 
 import dgl
 from dgl.data.utils import download, extract_archive, get_download_dir
@@ -26,23 +33,18 @@ GENRES_ML_10M = GENRES_ML_100K + ['IMAX']
 
 class MovieLens(object):
     """MovieLens dataset used by GCMC model
-
     TODO(minjie): make this dataset more general
-
     The dataset stores MovieLens ratings in two types of graphs. The encoder graph
     contains rating value information in the form of edge types. The decoder graph
     stores plain user-movie pairs in the form of a bipartite graph with no rating
     information. All graphs have two types of nodes: "user" and "movie".
-
     The training, validation and test set can be summarized as follows:
-
     training_enc_graph : training user-movie pairs + rating info
     training_dec_graph : training user-movie pairs
     valid_enc_graph : training user-movie pairs + rating info
     valid_dec_graph : validation user-movie pairs
     test_enc_graph : training user-movie pairs + validation user-movie pairs + rating info
     test_dec_graph : test user-movie pairs
-
     Attributes
     ----------
     train_enc_graph : dgl.DGLHeteroGraph
@@ -75,7 +77,6 @@ class MovieLens(object):
         Movie feature tensor. If None, representing an identity matrix.
     possible_rating_values : np.ndarray
         Available rating values in the dataset
-
     Parameters
     ----------
     name : str
@@ -94,9 +95,8 @@ class MovieLens(object):
         Ratio of test data
     valid_ratio : float, optional
         Ratio of validation data
-
     """
-    def __init__(self, name, device, mix_cpu_gpu=False,
+    def __init__(self, name, device, args, mix_cpu_gpu=False,
                  use_one_hot_fea=False, symm=True,
                  test_ratio=0.1, valid_ratio=0.1):
         self._name = name
@@ -134,7 +134,10 @@ class MovieLens(object):
         num_valid = int(np.ceil(self.all_train_rating_info.shape[0] * self._valid_ratio))
         shuffled_idx = np.random.permutation(self.all_train_rating_info.shape[0])
         self.valid_rating_info = self.all_train_rating_info.iloc[shuffled_idx[: num_valid]]
-        self.train_rating_info = self.all_train_rating_info.iloc[shuffled_idx[num_valid: ]]
+        if args.train_val:
+            self.train_rating_info = self.all_train_rating_info.iloc[shuffled_idx[:]]
+        else:
+            self.train_rating_info = self.all_train_rating_info.iloc[shuffled_idx[num_valid: ]]
         self.possible_rating_values = np.unique(self.train_rating_info["rating"].values)
 
         print("All rating pairs : {}".format(self.all_rating_info.shape[0]))
@@ -188,50 +191,37 @@ class MovieLens(object):
         valid_rating_pairs, valid_rating_values = self._generate_pair_value(self.valid_rating_info)
         test_rating_pairs, test_rating_values = self._generate_pair_value(self.test_rating_info)
 
-        def _make_labels(ratings):
-            labels = th.LongTensor(np.searchsorted(self.possible_rating_values, ratings)).to(device)
-            return labels
+        # Create adjacent matrix
+        # TODO: we do not +1 and do not create rating map since no need for ml dataset
+        # but might needed for others
+        neutral_rating = 0
+        rating_mx_train = np.full((self._num_user, self._num_movie), neutral_rating, dtype=np.int32)
+        assert 0 not in train_rating_values, '0 should not be a valid rating type'
+        rating_mx_train[train_rating_pairs] = train_rating_values 
+        self.rating_mx_train = sp.csr_matrix(rating_mx_train)
+        # Create subgraphs
+        # adj_train is rating matrix
+        # train_indices is our train_raing_pairs
+        # train_labels is our train_rating_values
+        # feature is currently None since we don't use side information
+        self.class_values = np.sort(np.unique(train_rating_values))
 
-        self.train_enc_graph = self._generate_enc_graph(train_rating_pairs, train_rating_values, add_support=True)
-        self.train_dec_graph = self._generate_dec_graph(train_rating_pairs)
-        self.train_labels = _make_labels(train_rating_values)
-        self.train_truths = th.FloatTensor(train_rating_values).to(device)
-
-        self.valid_enc_graph = self.train_enc_graph
-        self.valid_dec_graph = self._generate_dec_graph(valid_rating_pairs)
-        self.valid_labels = _make_labels(valid_rating_values)
-        self.valid_truths = th.FloatTensor(valid_rating_values).to(device)
-
-        self.test_enc_graph = self._generate_enc_graph(all_train_rating_pairs, all_train_rating_values, add_support=True)
-        self.test_dec_graph = self._generate_dec_graph(test_rating_pairs)
-        self.test_labels = _make_labels(test_rating_values)
-        self.test_truths = th.FloatTensor(test_rating_values).to(device)
-
-        def _npairs(graph):
-            rst = 0
-            for r in self.possible_rating_values:
-                r = str(r).replace('.', '_')
-                rst += graph.number_of_edges(str(r))
-            return rst
-
-        print("Train enc graph: \t#user:{}\t#movie:{}\t#pairs:{}".format(
-            self.train_enc_graph.number_of_nodes('user'), self.train_enc_graph.number_of_nodes('movie'),
-            _npairs(self.train_enc_graph)))
-        print("Train dec graph: \t#user:{}\t#movie:{}\t#pairs:{}".format(
-            self.train_dec_graph.number_of_nodes('user'), self.train_dec_graph.number_of_nodes('movie'),
-            self.train_dec_graph.number_of_edges()))
-        print("Valid enc graph: \t#user:{}\t#movie:{}\t#pairs:{}".format(
-            self.valid_enc_graph.number_of_nodes('user'), self.valid_enc_graph.number_of_nodes('movie'),
-            _npairs(self.valid_enc_graph)))
-        print("Valid dec graph: \t#user:{}\t#movie:{}\t#pairs:{}".format(
-            self.valid_dec_graph.number_of_nodes('user'), self.valid_dec_graph.number_of_nodes('movie'),
-            self.valid_dec_graph.number_of_edges()))
-        print("Test enc graph: \t#user:{}\t#movie:{}\t#pairs:{}".format(
-            self.test_enc_graph.number_of_nodes('user'), self.test_enc_graph.number_of_nodes('movie'),
-            _npairs(self.test_enc_graph)))
-        print("Test dec graph: \t#user:{}\t#movie:{}\t#pairs:{}".format(
-            self.test_dec_graph.number_of_nodes('user'), self.test_dec_graph.number_of_nodes('movie'),
-            self.test_dec_graph.number_of_edges()))
+        self.train_graphs, self.val_graphs, self.test_graphs = links2subgraphs(
+                rating_mx_train,
+                train_rating_pairs,
+                valid_rating_pairs,
+                test_rating_pairs,
+                train_rating_values,
+                valid_rating_values,
+                test_rating_values,
+                self.class_values, 
+                args.hop,
+                args.sample_ratio,
+                args.max_nodes_per_hop,
+                None,
+                None,
+                args.hop*2+1,
+                parallel=True)
 
     def _generate_pair_value(self, rating_info):
         rating_pairs = (np.array([self.global_user_id_map[ele] for ele in rating_info["user_id"]],
@@ -240,69 +230,6 @@ class MovieLens(object):
                                  dtype=np.int64))
         rating_values = rating_info["rating"].values.astype(np.float32)
         return rating_pairs, rating_values
-
-    def _generate_enc_graph(self, rating_pairs, rating_values, add_support=False):
-        user_movie_R = np.zeros((self._num_user, self._num_movie), dtype=np.float32)
-        user_movie_R[rating_pairs] = rating_values
-        movie_user_R = user_movie_R.transpose()
-
-        rating_graphs = []
-        rating_row, rating_col = rating_pairs
-        for rating in self.possible_rating_values:
-            ridx = np.where(rating_values == rating)
-            rrow = rating_row[ridx]
-            rcol = rating_col[ridx]
-            rating = str(rating).replace('.', '_')
-            bg = dgl.bipartite((rrow, rcol), 'user', rating, 'movie',
-                               num_nodes=(self._num_user, self._num_movie))
-            rev_bg = dgl.bipartite((rcol, rrow), 'movie', 'rev-%s' % rating, 'user',
-                               num_nodes=(self._num_movie, self._num_user))
-            rating_graphs.append(bg)
-            rating_graphs.append(rev_bg)
-        graph = dgl.hetero_from_relations(rating_graphs)
-
-        # sanity check
-        assert len(rating_pairs[0]) == sum([graph.number_of_edges(et) for et in graph.etypes]) // 2
-
-        if add_support:
-            def _calc_norm(x):
-                x = x.numpy().astype('float32')
-                x[x == 0.] = np.inf
-                x = th.FloatTensor(1. / np.sqrt(x))
-                return x.to(self._device).unsqueeze(1)
-            user_ci = []
-            user_cj = []
-            movie_ci = []
-            movie_cj = []
-            for r in self.possible_rating_values:
-                r = str(r).replace('.', '_')
-                user_ci.append(graph['rev-%s' % r].in_degrees())
-                movie_ci.append(graph[r].in_degrees())
-                if self._symm:
-                    user_cj.append(graph[r].out_degrees())
-                    movie_cj.append(graph['rev-%s' % r].out_degrees())
-                else:
-                    user_cj.append(th.zeros((self.num_user,)))
-                    movie_cj.append(th.zeros((self.num_movie,)))
-            user_ci = _calc_norm(sum(user_ci))
-            movie_ci = _calc_norm(sum(movie_ci))
-            if self._symm:
-                user_cj = _calc_norm(sum(user_cj))
-                movie_cj = _calc_norm(sum(movie_cj))
-            else:
-                user_cj = th.ones(self.num_user,).to(self._device)
-                movie_cj = th.ones(self.num_movie,).to(self._device)
-            graph.nodes['user'].data.update({'ci' : user_ci, 'cj' : user_cj})
-            graph.nodes['movie'].data.update({'ci' : movie_ci, 'cj' : movie_cj})
-
-        return graph
-
-    def _generate_dec_graph(self, rating_pairs):
-        ones = np.ones_like(rating_pairs[0])
-        user_movie_ratings_coo = sp.coo_matrix(
-            (ones, rating_pairs),
-            shape=(self.num_user, self.num_movie), dtype=np.float32)
-        return dgl.bipartite(user_movie_ratings_coo, 'user', 'rate', 'movie')
 
     @property
     def num_links(self):
@@ -335,19 +262,14 @@ class MovieLens(object):
 
     def _load_raw_rates(self, file_path, sep):
         """In MovieLens, the rates have the following format
-
         ml-100k
         user id \t movie id \t rating \t timestamp
-
         ml-1m/10m
         UserID::MovieID::Rating::Timestamp
-
         timestamp is unix timestamp and can be converted by pd.to_datetime(X, unit='s')
-
         Parameters
         ----------
         file_path : str
-
         Returns
         -------
         rating_info : pd.DataFrame
@@ -361,19 +283,14 @@ class MovieLens(object):
 
     def _load_raw_user_info(self):
         """In MovieLens, the user attributes file have the following formats:
-
         ml-100k:
         user id | age | gender | occupation | zip code
-
         ml-1m:
         UserID::Gender::Age::Occupation::Zip-code
-
         For ml-10m, there is no user information. We read the user id from the rating file.
-
         Parameters
         ----------
         name : str
-
         Returns
         -------
         user_info : pd.DataFrame
@@ -397,7 +314,6 @@ class MovieLens(object):
 
     def _process_user_fea(self):
         """
-
         Parameters
         ----------
         user_info : pd.DataFrame
@@ -405,11 +321,9 @@ class MovieLens(object):
         For ml-100k and ml-1m, the column name is ['id', 'gender', 'age', 'occupation', 'zip_code'].
             We take the age, gender, and the one-hot encoding of the occupation as the user features.
         For ml-10m, there is no user feature and we set the feature to be a single zero.
-
         Returns
         -------
         user_features : np.ndarray
-
         """
         if self._name == 'ml-100k' or self._name == 'ml-1m':
             ages = self.user_info['age'].values.astype(np.float32)
@@ -431,21 +345,14 @@ class MovieLens(object):
 
     def _load_raw_movie_info(self):
         """In MovieLens, the movie attributes may have the following formats:
-
         In ml_100k:
-
         movie id | movie title | release date | video release date | IMDb URL | [genres]
-
         In ml_1m, ml_10m:
-
         MovieID::Title (Release Year)::Genres
-
         Also, Genres are separated by |, e.g., Adventure|Animation|Children|Comedy|Fantasy
-
         Parameters
         ----------
         name : str
-
         Returns
         -------
         movie_info : pd.DataFrame
@@ -490,17 +397,14 @@ class MovieLens(object):
 
     def _process_movie_fea(self):
         """
-
         Parameters
         ----------
         movie_info : pd.DataFrame
         name :  str
-
         Returns
         -------
         movie_features : np.ndarray
             Generate movie features by concatenating embedding and the year
-
         """
         import torchtext
 
@@ -535,5 +439,175 @@ class MovieLens(object):
                                         axis=1)
         return movie_features
 
-# if __name__ == '__main__':
-#     MovieLens("ml-100k", device=th.device('cpu'), symm=True)
+
+def links2subgraphs(
+        A,
+        train_indices, 
+        val_indices, 
+        test_indices, 
+        train_labels, 
+        val_labels, 
+        test_labels, 
+        class_values, 
+        h=1, 
+        sample_ratio=1.0, 
+        max_nodes_per_hop=None, 
+        u_features=None, 
+        v_features=None, 
+        max_node_label=None, 
+        parallel=True):
+    # extract enclosing subgraphs
+    if max_node_label is None:  # if not provided, infer from graphs
+        max_n_label = {'max_node_label': 0}
+
+    def helper(A, links, g_labels):
+        g_list = []
+        if not parallel or max_node_label is None:
+            with tqdm(total=len(links[0])) as pbar:
+                for i, j, g_label in zip(links[0], links[1], g_labels):
+                    g = subgraph_extraction_labeling(g_label, (i, j), A, h, max_node_label, sample_ratio, max_nodes_per_hop, u_features, v_features, class_values)
+                    g_list.append(g) 
+                    pbar.update(1)
+        else:
+            start = time.time()
+            pool = mp.Pool(mp.cpu_count())
+            results = pool.starmap_async(parallel_worker, [(g_label, (i, j), A, h, max_node_label, sample_ratio, max_nodes_per_hop, u_features, v_features, class_values) for i, j, g_label in zip(links[0], links[1], g_labels)])
+            remaining = results._number_left
+            pbar = tqdm(total=remaining)
+            while True:
+                pbar.update(remaining - results._number_left)
+                if results.ready(): break
+                remaining = results._number_left
+                time.sleep(1)
+            g_list += results.get()
+            pool.close()
+            pbar.close()
+            end = time.time()
+            print("Time eplased for subgraph extraction: {}s".format(end-start))
+        return g_list
+
+    print('Enclosing subgraph extraction begins...')
+    train_graphs = helper(A, train_indices, train_labels)
+    val_graphs = helper(A, val_indices, val_labels)
+    test_graphs = helper(A, test_indices, test_labels)
+
+    return train_graphs, val_graphs, test_graphs
+
+
+def subgraph_extraction_labeling(g_label, ind, A, h=1, max_node_label=3, sample_ratio=1.0, max_nodes_per_hop=None, u_features=None, v_features=None, class_values=None):
+    # extract the h-hop enclosing subgraph around link 'ind'
+    dist = 0
+    u_nodes, v_nodes = [ind[0]], [ind[1]]
+    u_dist, v_dist = [0], [0]
+    u_visited, v_visited = set([ind[0]]), set([ind[1]])
+    u_fringe, v_fringe = set([ind[0]]), set([ind[1]])
+
+    for dist in range(1, h+1):
+        v_fringe, u_fringe = neighbors(u_fringe, A, True), neighbors(v_fringe, A, False)
+        u_fringe = u_fringe - u_visited
+        v_fringe = v_fringe - v_visited
+        u_visited = u_visited.union(u_fringe)
+        v_visited = v_visited.union(v_fringe)
+        if sample_ratio < 1.0:
+            u_fringe = random.sample(u_fringe, int(sample_ratio*len(u_fringe)))
+            v_fringe = random.sample(v_fringe, int(sample_ratio*len(v_fringe)))
+        if max_nodes_per_hop is not None:
+            if max_nodes_per_hop < len(u_fringe):
+                u_fringe = random.sample(u_fringe, max_nodes_per_hop)
+            if max_nodes_per_hop < len(v_fringe):
+                v_fringe = random.sample(v_fringe, max_nodes_per_hop)
+        if len(u_fringe) == 0 and len(v_fringe) == 0:
+            break
+        u_nodes = u_nodes + list(u_fringe)
+        v_nodes = v_nodes + list(v_fringe)
+        u_dist = u_dist + [dist] * len(u_fringe)
+        v_dist = v_dist + [dist] * len(v_fringe)
+
+    subgraph = A[u_nodes, :][:, v_nodes]
+
+    # remove link between target nodes
+    subgraph[0, 0] = 0
+    u, v, r = ssp.find(subgraph)
+    v += len(u_nodes)
+    r = r.astype(int)
+    
+    # Constructing DGL graph
+    # v nodes start after u
+    rating_graphs = []
+    num_user, num_movie = A.shape
+    
+    # Add bidirection link
+    src = np.concatenate([u, v])
+    dst = np.concatenate([v, u])
+    # NOTE: RelGraphConv count relation from 0??
+    bi_r = np.concatenate([r, r]) - 1 
+    subgraph_info = {'g_label': g_label, 'src': src, 'dst': dst, 'etype': bi_r}
+
+    # get structural node labels
+    # NOTE: only use subgraph here
+    u_node_labels = [x*2 for x in u_dist]
+    v_node_labels = [x*2+1 for x in v_dist]
+    u_x = one_hot(u_node_labels, max_node_label+1)
+    v_x = one_hot(v_node_labels, max_node_label+1)
+ 
+    subgraph_info['x'] = np.concatenate([u_x, v_x], axis=0)
+    return subgraph_info
+ 
+    '''
+    # get node features
+    if u_features is not None:
+        u_features = u_features[u_nodes]
+    if v_features is not None:
+        v_features = v_features[v_nodes]
+    node_features = None
+    # Let's first try without node features
+    if False: 
+        # directly use padded node features
+        if u_features is not None and v_features is not None:
+            u_extended = np.concatenate([u_features, np.zeros([u_features.shape[0], v_features.shape[1]])], 1)
+            v_extended = np.concatenate([np.zeros([v_features.shape[0], u_features.shape[1]]), v_features], 1)
+            node_features = np.concatenate([u_extended, v_extended], 0)
+    if False:
+        # use identity features (one-hot encodings of node idxes)
+        u_ids = one_hot(u_nodes, A.shape[0]+A.shape[1])
+        v_ids = one_hot([x+A.shape[0] for x in v_nodes], A.shape[0]+A.shape[1])
+        node_ids = np.concatenate([u_ids, v_ids], 0)
+        #node_features = np.concatenate([node_features, node_ids], 1)
+        node_features = node_ids
+    if False:
+        # only output node features for the target user and item
+        if u_features is not None and v_features is not None:
+            node_features = [u_features[0], v_features[0]]
+    '''
+    #graph.nodes['user'].data['x'] = u_x
+    #graph.nodes['movie'].data['x'] = v_x
+
+
+
+def parallel_worker(g_label, ind, A, h=1, max_node_label=3, sample_ratio=1.0, max_nodes_per_hop=None, u_features=None, v_features=None, class_values=None):
+    g = subgraph_extraction_labeling(g_label, ind, A, h, max_node_label, sample_ratio, max_nodes_per_hop, u_features, v_features, class_values)
+    return g
+
+
+def neighbors(fringe, A, row=True):
+    # find all 1-hop neighbors of nodes in fringe from A
+    res = set()
+    for node in fringe:
+        if row:
+            _, nei, _ = ssp.find(A[node, :])
+        else:
+            _, nei, _ = ssp.find(A[:, node])
+        nei = set(nei)
+        res = res.union(nei)
+    return res
+
+
+def one_hot(idx, length):
+    idx = np.array(idx)
+    x = np.zeros([len(idx), length])
+    x[np.arange(len(idx)), idx] = 1.0
+    return x
+
+
+if __name__ == '__main__':
+    MovieLens("ml-100k", device=th.device('cpu'), symm=True, use_one_hot_fea=True)

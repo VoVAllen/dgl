@@ -8,6 +8,7 @@
 
 #include <dgl/runtime/object.h>
 #include <dgl/runtime/ndarray.h>
+#include <dgl/zerocopy_serializer.h>
 #include <dmlc/thread_local.h>
 #include <cstdint>
 #include <memory>
@@ -96,6 +97,25 @@ struct RPCMessage : public runtime::Object {
   /*! \brief Extra payloads in the form of tensors.*/
   std::vector<runtime::NDArray> tensors;
 
+  bool Load(dmlc::Stream* stream) {
+    stream->Read(&service_id);
+    stream->Read(&msg_seq);
+    stream->Read(&client_id);
+    stream->Read(&server_id);
+    stream->Read(&data);
+    stream->Read(&tensors);
+    return true;
+  }
+
+  void Save(dmlc::Stream* stream) const {
+    stream->Write(service_id);
+    stream->Write(msg_seq);
+    stream->Write(client_id);
+    stream->Write(server_id);
+    stream->Write(data);
+    stream->Write(tensors);
+  }
+
   static constexpr const char* _type_key = "rpc.RPCMessage";
   DGL_DECLARE_OBJECT_TYPE_INFO(RPCMessage, runtime::Object);
 };
@@ -171,5 +191,10 @@ RPCStatus RecvRPCMessage(RPCMessage* msg, int32_t timeout = 0);
 
 }  // namespace rpc
 }  // namespace dgl
+
+
+namespace dmlc {
+DMLC_DECLARE_TRAITS(has_saveload, dgl::rpc::RPCMessage, true);
+}  // namespace dmlc
 
 #endif  // DGL_RPC_RPC_H_

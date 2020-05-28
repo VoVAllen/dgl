@@ -26,7 +26,8 @@ import networkx as nx
 
 from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
-from ppi_gat_model import AttentionGNN
+
+from gcn_model import GCN
 
 SEED = 1
 np.random.seed(SEED)
@@ -34,18 +35,16 @@ tf.random.set_seed(SEED)
 
 IS_TRAINING = True
 
-
 def evaluate(model, graph_tuples, labels):
-    # IS_TRAINING = False
-    # logits = model(graph_tuples).nodes
+    IS_TRAINING = False
+    logits = model(graph_tuples).nodes
 
-    model(graph_tuples)
-    # output_graph = utils_tf.get_graph(outgraphs, 0)
-    logits =model.outputs
     predict = np.where(logits.numpy() >= 0., 1, 0)
     score = f1_score(labels,
                      predict, average='micro')
     return score
+
+
 
 def load_g(args, ds, i):
     # ds = PPIDataset("train")
@@ -83,27 +82,24 @@ def main(args):
         device = "/cpu:0"
     else:
         device = "/gpu:{}".format(args.gpu)
+    
 
     ds = PPIDataset("train")
 
     graphs_tuple, n_classes, in_feats, labels, norm, n_edges = load_g(
         args, ds, 0)
 
-    # num_nodes =
-    model = AttentionGNN(n_classes, args.num_hidden, args.num_heads, args.num_layers)
-
-
-    optimizer = tf.keras.optimizers.Adam(
-        learning_rate=args.lr)
-
-    loss_fcn = tf.keras.losses.BinaryCrossentropy(
-        from_logits=True)
+    model = GCN(in_feats,
+                args.n_hidden,
+                n_classes,
+                args.n_layers,
+                tf.nn.relu,
+                args.dropout, norm)
 
     total_dur = []
     for epoch in range(args.n_epochs):
         dur = []
         scores = []
-        loss_list = []
         for i in range(len(ds)):
             # total_time = 0
             graphs_tuple, n_classes, in_feats, labels, norm, n_edges = load_g(
@@ -118,18 +114,23 @@ def main(args):
             # ]
 
             # replace norm tensor
-            # for layer in model.layers:
-                # layer.set_norm(norm)
+            for layer in model.layers:
+                layer.set_norm(norm)
 
             # create GCN model
 
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=args.lr)
+
+            loss_fcn = tf.keras.losses.BinaryCrossentropy(
+                from_logits=True)
 
             def update_step(graphs_tuple):
                 with tf.GradientTape() as tape:
                     IS_TRAINING = True
-                    model(graphs_tuple)
-                    # output_graph = utils_tf.get_graph(outgraphs, 0)
-                    logits =model.outputs
+                    outgraphs = model(graphs_tuple)
+                    output_graph = utils_tf.get_graph(outgraphs, 0)
+                    logits = output_graph.nodes
                     loss_value = loss_fcn(labels, logits)
                     # Manually Weight Decay
                     # We found Tensorflow has a different implementation on weight decay
@@ -139,8 +140,7 @@ def main(args):
                         loss_value = loss_value + \
                             args.weight_decay*tf.nn.l2_loss(weight)
 
-                    grads = tape.gradient(
-                        loss_value, model.trainable_variables)
+                    grads = tape.gradient(loss_value, model.trainable_variables)
                     optimizer.apply_gradients(
                         zip(grads, model.trainable_variables))
                 return loss_value
@@ -156,53 +156,37 @@ def main(args):
 
             f1_score = evaluate(model, graphs_tuple, labels)
             scores.append(f1_score)
-            loss_list.append(loss_value.numpy().mean())
-        print(dur)
+        # print(dur)
         if len(dur) != 0:
             total_dur.append(np.sum(dur))
-            print(np.sum(dur))
-            print(len(dur))
+            # print(np.sum(dur))
             # print(np.mean(total_dur))
 
         print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | Accuracy {:.4f} | "
-              "ETputs(KTEPS) {:.2f}". format(epoch, np.mean(total_dur), np.mean(loss_list),
-                                             np.mean(scores), n_edges / np.mean(dur) / 1000))
+                "ETputs(KTEPS) {:.2f}". format(epoch, np.mean(total_dur), loss_value.numpy().item(),
+                                                np.mean(scores), n_edges / np.mean(dur) / 1000))
 
         # acc = evaluate(model, graphs_tuple, labels)
         # print("Test Accuracy {:.4f}".format(acc))
 
 
 if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser(description='GAT')
+    parser = argparse.ArgumentParser(description='GCN')
+    # register_data_args(parser)
+    parser.add_argument("--dropout", type=float, default=0.,
+                        help="dropout probability")
     parser.add_argument("--gpu", type=int, default=-1,
-                        help="which GPU to use. Set -1 to use CPU.")
-    parser.add_argument("--n-epochs", type=int, default=400,
-                        help="number of training epochs")
-    parser.add_argument("--num-heads", type=int, default=4,
-                        help="number of hidden attention heads")
-    parser.add_argument("--num-out-heads", type=int, default=6,
-                        help="number of output attention heads")
-    parser.add_argument("--num-layers", type=int, default=2,
-                        help="number of hidden layers")
-    parser.add_argument("--num-hidden", type=int, default=256,
-                        help="number of hidden units")
-    parser.add_argument("--residual", action="store_true", default=True,
-                        help="use residual connection")
-    parser.add_argument("--in-drop", type=float, default=0,
-                        help="input feature dropout")
-    parser.add_argument("--attn-drop", type=float, default=0,
-                        help="attention dropout")
-    parser.add_argument("--lr", type=float, default=0.005,
+                        help="gpu")
+    parser.add_argument("--lr", type=float, default=1e-2,
                         help="learning rate")
-    parser.add_argument('--weight-decay', type=float, default=0,
-                        help="weight decay")
-    parser.add_argument('--alpha', type=float, default=0.2,
-                        help="the negative slop of leaky relu")
-    parser.add_argument('--batch-size', type=int, default=2,
-                        help="batch size used for training, validation and test")
-    parser.add_argument('--patience', type=int, default=10,
-                        help="used for early stop")
+    parser.add_argument("--n-epochs", type=int, default=200,
+                        help="number of training epochs")
+    parser.add_argument("--n-hidden", type=int, default=256,
+                        help="number of hidden gcn units")
+    parser.add_argument("--n-layers", type=int, default=2,
+                        help="number of hidden gcn layers")
+    parser.add_argument("--weight-decay", type=float, default=5e-4,
+                        help="Weight for L2 loss")
     args = parser.parse_args()
     print(args)
 

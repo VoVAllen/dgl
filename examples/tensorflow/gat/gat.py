@@ -46,7 +46,7 @@ class GAT(tf.keras.Model):
             num_hidden * heads[-2], num_classes, heads[-1],
             feat_drop, attn_drop, negative_slope, residual, None))
 
-    def call(self, inputs):
+    def call(self, inputs, training=True):
         h = inputs
         for l in range(self.num_layers):
             h = self.gat_layers[l](self.g, h)

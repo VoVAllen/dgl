@@ -10,14 +10,18 @@ import dgl.function as fn
 from graph_nets import blocks
 
 from graph_nets import utils_tf
+from graph_nets import _base
 from scipy import sparse as spsp
+
+# from tensorflow.python.context import context
+from tensorflow.python.eager import context
 
 def load_random_graph(args):
     n_nodes = args.n_nodes
     n_edges = n_nodes * 10
 
-    row = np.random.choice(n_nodes, n_edges)
-    col = np.random.choice(n_nodes, n_edges)
+    row = np.random.RandomState(6657).choice(n_nodes, n_edges)
+    col = np.random.RandomState(6657).choice(n_nodes, n_edges)
     spm = spsp.coo_matrix((np.ones(len(row)), (row, col)), shape=(n_nodes, n_nodes))
     g = dgl.graph(spm)
 
@@ -34,6 +38,8 @@ def load_random_graph(args):
     src, dst = g.edges()
     data_dict_1 = {
         "nodes": features,
+        'n_node': n_nodes,
+        'n_edge': n_edges,
         "senders": tf.cast(src, tf.int32),
         "receivers": tf.cast(dst, tf.int32)
     }
@@ -41,7 +47,7 @@ def load_random_graph(args):
     
     return graphs_tuple, features, labels, train_mask
 
-class GraphConv(layers.Layer):
+class GraphConv(_base.AbstractModule):
     def __init__(self,
                  in_feats,
                  out_feats):
@@ -63,32 +69,41 @@ class GraphConv(layers.Layer):
         self.received_edges_aggregator = blocks.ReceivedEdgesToNodesAggregator(
                 reducer=tf.math.unsorted_segment_sum)
 
-    def forward(self, graph, feat):
+    def _build(self, graph, feat):
         if self._in_feats > self._out_feats:
             # mult W first to reduce the feature size for aggregation.
             feat = tf.matmul(feat, self.weight)
+            
+            graph = graph.replace(nodes=feat)
             sender_values = blocks.broadcast_sender_nodes_to_edges(
-                graph.replace(nodes=feat))
+                graph)
             # Summing all of the attended values from each node.
             # [total_num_nodes, num_heads, embedding_size]
             aggregated_attended_values = self.received_edges_aggregator(graph.replace(edges=sender_values))
-            rst = graph.replace(nodes=aggregated_attended_values)
+            # print(tf.reduce_sum(aggregated_attended_values - feat))
+            # aggregated_attended_values=feat
+            graph = graph.replace(nodes=aggregated_attended_values)
+            rst = graph.nodes
 
         else:
+            # aggregated_attended_values = feat
             # aggregate first then mult W
+            graph = graph.replace(nodes=feat)
             sender_values = blocks.broadcast_sender_nodes_to_edges(
-                graph.replace(nodes=feat))
+                graph)
             # Summing all of the attended values from each node.
             # [total_num_nodes, num_heads, embedding_size]
             aggregated_attended_values = self.received_edges_aggregator(graph.replace(edges=sender_values))
-            rst = graph.replace(nodes=aggregated_attended_values)
+            
+            # print(tf.reduce_sum(aggregated_attended_values - feat))
+            graph = graph.replace(nodes=aggregated_attended_values)
+            rst = graph.nodes
             rst = tf.matmul(rst, self.weight)
 
         rst = rst + self.bias
-
         return rst
 
-class GCN(layers.Layer):
+class GCN(_base.AbstractModule):
     def __init__(self,
                  g,
                  in_feats,
@@ -110,7 +125,7 @@ class GCN(layers.Layer):
         self.activation = activation
         self.dropout = layers.Dropout(dropout)
 
-    def forward(self, features):
+    def _build(self, features):
         h = features
         for i, layer in enumerate(self.layers):
             h = layer(self.g, h)
@@ -132,6 +147,7 @@ def main(args):
     #     torch.cuda.manual_seed(args.seed)
 
     g, features, labels, train_mask = load_random_graph(args)
+    # g.nodes = features
     with tf.device(device):
 
         # create GCN model
@@ -153,7 +169,8 @@ def main(args):
         profiler = Profiler()
         # profiler.start()
         for epoch in range(args.n_epochs):
-            with tf.GradientTape() as tape:
+            with tf.GradientTape() as tape:                
+                context.async_wait()
                 if epoch >= 3:
                     t0 = time.time()
                 # forward
@@ -161,11 +178,13 @@ def main(args):
 
                 loss = loss_fcn(labels[train_mask], logits[train_mask])
 
-                for weight in model.trainable_weights:
+                for weight in model.trainable_variables:
                     loss = loss + \
                         args.weight_decay*tf.nn.l2_loss(weight)
-                grads = tape.gradient(loss, model.trainable_weights)
-                optimizer.apply_gradients(zip(grads, model.trainable_weights))
+                grads = tape.gradient(loss, model.trainable_variables)
+                optimizer.apply_gradients(zip(grads, model.trainable_variables))
+                # Manual Sync
+                context.async_wait()
                 if epoch >= 3:
                     dur.append(time.time() - t0)
                     print('Training time: {:.4f}'.format(np.mean(dur)))
@@ -176,7 +195,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GCN')
     parser.add_argument("--seed", type=int, default=0,
                         help='Random seed')
-    parser.add_argument("--n-nodes", type=int, default=10000000,
+    parser.add_argument("--n-nodes", type=int, default=1000000,
                         help="Number of nodes in the random graph")
     parser.add_argument("--n-feats", type=int, default=100,
                         help="Number of input node features")

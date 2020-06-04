@@ -8,14 +8,15 @@ from tensorflow.keras import layers
 import dgl
 import dgl.function as fn
 
+from tensorflow.python.eager import context
 from scipy import sparse as spsp
 
 def load_random_graph(args):
     n_nodes = args.n_nodes
     n_edges = n_nodes * 10
 
-    row = np.random.choice(n_nodes, n_edges)
-    col = np.random.choice(n_nodes, n_edges)
+    row = np.random.RandomState(6657).choice(n_nodes, n_edges)
+    col = np.random.RandomState(6657).choice(n_nodes, n_edges)
     spm = spsp.coo_matrix((np.ones(len(row)), (row, col)), shape=(n_nodes, n_nodes))
     g = dgl.graph(spm)
 
@@ -49,7 +50,7 @@ class GraphConv(layers.Layer):
                                                         dtype='float32'),
                                 trainable=True)
 
-    def forward(self, graph, feat):
+    def call(self, graph, feat):
         if self._in_feats > self._out_feats:
             # mult W first to reduce the feature size for aggregation.
             feat = tf.matmul(feat, self.weight)
@@ -91,7 +92,7 @@ class GCN(layers.Layer):
         self.activation = activation
         self.dropout = layers.Dropout(dropout)
 
-    def forward(self, features):
+    def call(self, features):
         h = features
         for i, layer in enumerate(self.layers):
             h = layer(self.g, h)
@@ -134,7 +135,8 @@ def main(args):
         profiler = Profiler()
         # profiler.start()
         for epoch in range(args.n_epochs):
-            with tf.GradientTape() as tape:
+            with tf.GradientTape() as tape:             
+                context.async_wait()
                 if epoch >= 3:
                     t0 = time.time()
                 # forward

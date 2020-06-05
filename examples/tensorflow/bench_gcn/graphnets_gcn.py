@@ -18,10 +18,12 @@ from tensorflow.python.eager import context
 
 def load_random_graph(args):
     n_nodes = args.n_nodes
-    n_edges = n_nodes * 10
+    n_edges = n_nodes * 1
 
-    row = np.random.RandomState(6657).choice(n_nodes, n_edges)
-    col = np.random.RandomState(6657).choice(n_nodes, n_edges)
+    # row = np.random.RandomState(6657).choice(n_nodes, n_edges)
+    # col = np.random.RandomState(6657).choice(n_nodes, n_edges)
+    row = np.arange(n_nodes)
+    col = np.arange(n_nodes)
     spm = spsp.coo_matrix((np.ones(len(row)), (row, col)), shape=(n_nodes, n_nodes))
     g = dgl.graph(spm)
 

@@ -97,8 +97,7 @@ class DistSAGE(nn.Module):
                 batch_size=batch_size,
                 collate_fn=sampler.sample_blocks,
                 shuffle=False,
-                drop_last=False,
-                num_workers=args.num_workers)
+                drop_last=False)
 
             for blocks in tqdm.tqdm(dataloader):
                 block = blocks[0]
@@ -174,6 +173,7 @@ def run(args, device, data):
 
     train_size = th.sum(g.ndata['train_mask'][0:g.number_of_nodes()])
 
+    device = "cuda"
     # Training loop
     iter_tput = []
     profiler = Profiler()
@@ -213,6 +213,9 @@ def run(args, device, data):
             num_inputs += len(blocks[0].srcdata[dgl.NID])
             # Compute loss and prediction
             start = time.time()
+            blocks = blocks.to(device)
+            model = model.to(device)
+            batch_inputs = batch_inputs.to(device)
             batch_pred = model(blocks, batch_inputs)
             loss = loss_fcn(batch_pred, batch_labels)
             forward_end = time.time()
@@ -223,12 +226,12 @@ def run(args, device, data):
             backward_time += compute_end - forward_end
 
             # Aggregate gradients in multiple nodes.
-            if not args.standalone:
-                for param in model.parameters():
-                    if param.requires_grad and param.grad is not None:
-                        th.distributed.all_reduce(param.grad.data,
-                                                  op=th.distributed.ReduceOp.SUM)
-                        param.grad.data /= dgl.distributed.get_num_client()
+            # if not args.standalone:
+            #     for param in model.parameters():
+            #         if param.requires_grad and param.grad is not None:
+            #             th.distributed.all_reduce(param.grad.data,
+            #                                       op=th.distributed.ReduceOp.SUM)
+            #             param.grad.data /= dgl.distributed.get_num_client()
 
             optimizer.step()
             update_time += time.time() - compute_end

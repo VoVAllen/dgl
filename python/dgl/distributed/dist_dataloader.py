@@ -97,9 +97,9 @@ class DistDataLoader:
             self.expected_idxs += 1
 
     def __next__(self):
-        if not self.started:
-            for _ in range(self.queue_size):
-                self._request_next_batch()
+        # if not self.started:
+        for _ in range(self.queue_size):
+            self._request_next_batch()
         self._request_next_batch()
         if self.recv_idxs < self.expected_idxs:
             result = self.queue.get(timeout=9999)

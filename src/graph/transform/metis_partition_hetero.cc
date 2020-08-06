@@ -22,7 +22,7 @@ IdArray MetisPartition(UnitGraphPtr g, int k, NDArray vwgt_arr) {
   CHECK_EQ(sizeof(idx_t), sizeof(int64_t))
     << "Metis only supports int64 graph for now";
   // This is a symmetric graph, so in-csr and out-csr are the same.
-  const auto mat = g->GetCSRMatrix(0);
+  const auto mat = g->GetCSCMatrix(0);
   //   const auto mat = g->GetInCSR()->ToCSRMatrix();
 
   idx_t nvtxs = g->NumVertices(0);
@@ -48,6 +48,9 @@ IdArray MetisPartition(UnitGraphPtr g, int k, NDArray vwgt_arr) {
   idx_t options[METIS_NOPTIONS];
   METIS_SetDefaultOptions(options);
   options[METIS_OPTION_ONDISK] = 1;
+  options[METIS_OPTION_NITER] = 1;
+  options[METIS_OPTION_NIPARTS] = 1;
+  options[METIS_OPTION_DROPEDGES] = 1;
 
   int ret = METIS_PartGraphKway(
     &nvtxs,  // The number of vertices

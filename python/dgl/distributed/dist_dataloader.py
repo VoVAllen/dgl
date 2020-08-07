@@ -98,11 +98,13 @@ class DistDataLoader:
 
     def __next__(self):
         # if not self.started:
+        tic = time.time()
         for _ in range(self.queue_size):
             self._request_next_batch()
         self._request_next_batch()
         if self.recv_idxs < self.expected_idxs:
             result = self.queue.get(timeout=9999)
+            print(f"Per batch: {time.time() - tic}", flush=True)
             self.recv_idxs += 1
             return result
         else:

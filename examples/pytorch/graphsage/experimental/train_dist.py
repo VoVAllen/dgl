@@ -100,11 +100,11 @@ class DistSAGE(nn.Module):
                 drop_last=False)
 
             for blocks in tqdm.tqdm(dataloader):
-                block = blocks[0]
+                block = blocks[0].to(device)
                 input_nodes = block.srcdata[dgl.NID]
                 output_nodes = block.dstdata[dgl.NID]
                 h = x[input_nodes].to(device)
-                h_dst = h[:block.number_of_dst_nodes()]
+                h_dst = h[:block.number_of_dst_nodes()].to(device)
                 h = layer(block, (h, h_dst))
                 if l != len(self.layers) - 1:
                     h = self.activation(h)
@@ -212,6 +212,7 @@ def run(args, device, data):
             num_inputs += len(blocks[0].srcdata[dgl.NID])
             # Compute loss and prediction
             start = time.time()
+            blocks = [block.to(device) for block in blocks]
             batch_pred = model(blocks, batch_inputs)
             loss = loss_fcn(batch_pred, batch_labels)
             forward_end = time.time()
@@ -275,7 +276,7 @@ def main(args):
         g.rank(), len(train_nid), len(np.intersect1d(train_nid.numpy(), local_nid)),
         len(val_nid), len(np.intersect1d(val_nid.numpy(), local_nid)),
         len(test_nid), len(np.intersect1d(test_nid.numpy(), local_nid))))
-    device = th.device('cpu')
+    device = th.device('cuda')
     labels = g.ndata['labels'][np.arange(g.number_of_nodes())]
     n_classes = len(th.unique(labels[th.logical_not(th.isnan(labels))]))
     print('#labels:', n_classes)

@@ -87,7 +87,7 @@ def start_server(server_id, ip_config, num_clients, server_state, \
     # main service loop
     while True:
         req, client_id = rpc.recv_request()
-        print(req)
+        print(f"req: {req}, client_id: {client_id}")
         res = req.process_request(server_state)
         if res is not None:
             if isinstance(res, list):

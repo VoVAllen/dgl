@@ -4,6 +4,7 @@ import time
 
 from . import rpc
 from .constants import MAX_QUEUE_SIZE
+import logging
 
 def start_server(server_id, ip_config, num_clients, server_state, \
     max_queue_size=MAX_QUEUE_SIZE, net_type='socket'):
@@ -61,9 +62,9 @@ def start_server(server_id, ip_config, num_clients, server_state, \
     # wait all the senders connect to server.
     # Once all the senders connect to server, server will not
     # accept new sender's connection
-    print("Wait connections ...")
+    print("Wait connections ...", flush=True)
     rpc.receiver_wait(ip_addr, port, num_clients)
-    print("%d clients connected!" % num_clients)
+    print("%d clients connected!" % num_clients, flush=True)
     rpc.set_num_client(num_clients)
     # Recv all the client's IP and assign ID to clients
     addr_list = []
@@ -86,6 +87,7 @@ def start_server(server_id, ip_config, num_clients, server_state, \
     # main service loop
     while True:
         req, client_id = rpc.recv_request()
+        print(req)
         res = req.process_request(server_state)
         if res is not None:
             if isinstance(res, list):

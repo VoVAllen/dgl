@@ -40,7 +40,8 @@ class HeteroGraphData(ObjectBase):
             edata_list.append(tensor_dict_to_ndarray_dict(g.edges[etype].data))
         for ntype in g.ntypes:
             ndata_list.append(tensor_dict_to_ndarray_dict(g.nodes[ntype].data))
-        return _CAPI_MakeHeteroGraphData(g._graph, ndata_list, edata_list, g.ntypes, g.etypes)
+        assert len(g.canonical_etypes) > 0 and len(g.ntypes) > 0, "Invalid HeteroGraph input"
+        return _CAPI_MakeHeteroGraphData(g._graph, ndata_list, edata_list, g.ntypes, g.canonical_etypes)
 
     def get_graph(self):
         ntensor_list = list(_CAPI_GetNDataFromHeteroGraphData(self))

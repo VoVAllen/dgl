@@ -31,6 +31,8 @@ if __name__ == '__main__':
         g, _ = load_ogb('ogbn-products')
     elif args.dataset == 'ogb-paper100M':
         g, _ = load_ogb('ogbn-papers100M')
+    else:
+        raise Exception("Unknown dataset")
     print('load {} takes {:.3f} seconds'.format(args.dataset, time.time() - start))
     print('|V|={}, |E|={}'.format(g.number_of_nodes(), g.number_of_edges()))
     print('train: {}, valid: {}, test: {}'.format(th.sum(g.ndata['train_mask']),
@@ -42,7 +44,7 @@ if __name__ == '__main__':
         balance_ntypes = None
 
     if args.undirected:
-        sym_g = dgl.to_bidirected_stale(g, readonly=True)
+        sym_g = dgl.to_bidirected(g, readonly=True)
         for key in g.ndata:
             sym_g.ndata[key] = g.ndata[key]
         g = sym_g

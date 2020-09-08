@@ -1,0 +1,20 @@
+
+---
+- hosts: workers
+  remote_user: ubuntu
+  vars:
+    host_ip: 172.31.4.236
+    host_port: 1234
+    remote_whole_dir: '{{ansible_env.HOME}}/dgl_distributed/dgl/'
+    remote_sage_dir: '{{remote_whole_dir}}/examples/pytorch/graphsage/'
+    num_clients: '20'
+  tasks:
+    - name: "Install related"
+      command: 'pkill -f python'
+
+    # - name: "Install related2"
+    #   command: 'pkill -f spawn'
+
+
+    # - name: "Install related3"
+    #   command: 'pkill -f train_dist.py'

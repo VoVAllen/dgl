@@ -1,0 +1,50 @@
+---
+- hosts: workers
+  remote_user: ubuntu
+  vars:
+    host_ip: 172.31.4.236
+    host_port: 1234
+    remote_whole_dir: "{{ansible_env.HOME}}/dgl_distributed/dgl/"
+    remote_sage_dir: "{{remote_whole_dir}}/examples/pytorch/graphsage/"
+    num_clients: "20"
+  tasks:
+    - name: "Sync directory to all machine"
+      synchronize:
+        src: "/home/ubuntu/dev/csr/dgl/"
+        dest: "{{remote_whole_dir}}"
+    - name: "Install related"
+      command: "python3.7 -m pip install --upgrade pip torch torchvision tqdm pyinstrument"
+    - name: "Start server"
+      shell: "python3.7 train_dist.py --graph-name ogb-paper100M --ip_config ip_config.txt --num-epochs 30 --batch-size 1000 --lr 0.1 --num-client 4 > ~/ppm_server.log 2>&1"
+      async: 999999999
+      poll: 0
+      register: server_result
+      args:
+        chdir: "{{remote_sage_dir}}/experimental/"
+      environment:
+        PYTHONPATH: "{{remote_sage_dir}}"
+        DGL_ROLE: "server"
+        DGL_SERVER_ID: "{{rank}}"
+        DGL_NUM_SERVER: 1
+        OMP_NUM_THREADS: 1
+        DGL_NUM_CLIENT: "{{num_clients}}"
+        DGL_DIST_MODE: "distributed"
+        DGL_CONF_PATH: "/home/ubuntu/data/ogbn-paper100M/ogb-paper100M.json"
+        DGL_IP_CONFIG: "ip_config.txt"
+        PYTHONUNBUFFERED: 1
+
+    - name: "Execute"
+      shell: "python3.7 -m torch.distributed.launch --nproc_per_node=1 --nnodes=4 --node_rank={{rank}} --master_addr={{host_ip}} --master_port={{host_port}} train_dist.py --graph-name ogb-paper100M --ip_config ip_config.txt --num-epochs 20 --num-client {{num_clients}} --batch-size 1000 --num-workers 4 --num-servers 1 > ~/ppm_client.log 2>&1"
+      # async: 999999999
+      # poll: 5
+      register: client_result
+      args:
+        chdir: "{{remote_sage_dir}}/experimental/"
+      environment:
+        CUDA_VISIBLE_DEVICES: "0"
+        PYTHONPATH: "{{remote_sage_dir}}"
+        DGL_DIST_MODE: "distributed"
+        DGL_ROLE: "client"
+        DGL_NUM_CLIENT: "{{num_clients}}"
+        DGL_CONF_PATH: "/home/ubuntu/data/ogbn-paper100M/ogb-paper100M.json"
+        DGL_IP_CONFIG: "ip_config.txt"

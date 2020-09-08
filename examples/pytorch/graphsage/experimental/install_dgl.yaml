@@ -1,0 +1,11 @@
+---
+- hosts: workers
+  remote_user: ubuntu
+  vars:
+    host_ip: 172.31.4.236
+    host_port: 1234
+  tasks:
+    - name: "Install related"
+      script: './install_dgl.sh'
+      register: server_result
+    # - debug: {server_result.stdout}

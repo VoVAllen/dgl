@@ -522,10 +522,23 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCFastPull")
     int part_id = msg.server_id / group_count;
     char* data_char = static_cast<char*>(msg.tensors[0]->data);
     dgl_id_t id_size = remote_ids[part_id].size();
-    for (size_t n = 0; n < id_size; ++n) {
+
+    size_t n = 0;
+    size_t num_iters = 0;
+    while (n < id_size) {
+      size_t next;
+      // If the Ids are contiguous, we want to copy all rows with one memcpy.
+      // There are some overheads associated with memcpy.
+      // Here we try to find the end of the contiguous memory.
+      for (next = n + 1; next < id_size
+           // If the remote Ids are contiguous.
+           && remote_ids_original[part_id][next] - 1 == remote_ids_original[part_id][next - 1];
+           next++);
       memcpy(return_data + remote_ids_original[part_id][n] * row_size,
              data_char + n * row_size,
-             row_size);
+             row_size * (next - n));
+      n = next;
+      num_iters++;
     }
     pull_stat.end(pull_stats::REMOTE_DATACOPY);
     pull_stat.add_remote_copy(id_size * row_size);

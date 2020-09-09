@@ -49,8 +49,8 @@ class NeighborSampler(object):
 
             src_nids = block.srcdata[dgl.NID]
             dst_nids = block.dstdata[dgl.NID]
-            src_pids = pb.nid2partid(src_nids)
-            dst_pids = pb.nid2partid(dst_nids)
+            src_pids = self.pb.nid2partid(src_nids)
+            dst_pids = self.pb.nid2partid(dst_nids)
             block1, part_occurs = dgl.reorder_nodes(block, [src_pids, dst_pids])
             block1.srcdata[dgl.NID] = src_nids[block1.srcdata[dgl.NID]]
             block1.dstdata[dgl.NID] = dst_nids[block1.dstdata[dgl.NID]]

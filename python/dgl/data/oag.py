@@ -37,8 +37,8 @@ class OAGDataset(DGLBuiltinDataset):
       Whether to print out progress information. Default: True.
     """
     _urls = {
-        'cs' : 'dataset/OAG/OAG_CS1.zip',
-        'med' : 'dataset/OAG/OAG_med1.zip',
+        'cs' : 'dataset/OAG/OAG_CS2.zip',
+        'med' : 'dataset/OAG/OAG_med2.zip',
     }
     _internal_dirs = {
         'cs' : 'OAG_CS',
@@ -77,8 +77,9 @@ class OAGDataset(DGLBuiltinDataset):
             ntype = file_name.replace('_emb.npy', '')
             g.nodes[ntype].data['emb'] = F.tensor(feat)
 
-        g.nodes['field'].data['level'] = F.tensor(np.load(dir_path + '/field_field.npy'))
-        g.nodes['paper'].data['time'] = F.tensor(np.load(dir_path + '/paper_time.npy'))
+        g.nodes['field'].data['level'] = F.tensor(np.load(dir_path + '/field_level.npy'))
+        #TODO(zhengda) let's not load time first.
+        #g.nodes['paper'].data['time'] = F.tensor(np.load(dir_path + '/paper_time.npy'))
 
         self._g = g
         self._graph = g

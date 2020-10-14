@@ -1016,47 +1016,27 @@ DGL_REGISTER_GLOBAL("ndarray._CAPI_DGLArrayCastToSigned")
 }  // namespace aten
 }  // namespace dgl
 
-#include <GKlib.h>
-
 template<class T>
-T *gk_malloc(long size, T val, char *msg) {
-  return NULL;
-};
-
-template<>
-int32_t *gk_malloc<int32_t>(long size, int32_t val, char *msg) {
-  return gk_i32smalloc(size, val, msg);
-}
-template<>
-int64_t *gk_malloc<int64_t>(long size, int64_t val, char *msg) {
-  return gk_i64smalloc(size, val, msg);
+std::vector<T> &get_vector() {
+  static thread_local std::vector<T> vec;
+  return vec;
 }
 
 template<class T>
 class hashtable
 {
-  // TODO(zhengda) I need to make it thread local.
-  static thread_local T *hmap;
-  static thread_local long size;
+  std::vector<T> &hmap;
   T mask;
  public:
-  hashtable(long n) {
+  hashtable(long n): hmap(get_vector<T>()) {
     long new_size;
     for (new_size=1; new_size<3*n; new_size*=2);
     mask = new_size-1;
-    if (hmap == NULL) {
-      hmap = gk_malloc<T>(new_size, -1, "hmap");
-      size = new_size;
-    } else if (new_size > size) {
-      gk_free((void **)&hmap, LTERM);
-      hmap = gk_malloc<T>(new_size, -1, "hmap");
-      size = new_size;
+    if (new_size > (long) hmap.size()) {
+      hmap.resize(new_size, -1);
     } else {
-      // This is the case that we can reuse the memory from previous run.
-      // We need to clean up the old table.
-      for (long i = 0; i < new_size; i++) {
+      for (long i = 0; i < new_size; i++)
         hmap[i] = -1;
-      }
     }
   }
 
@@ -1074,15 +1054,6 @@ class hashtable
     }
   }
 };
-
-template<>
-thread_local int32_t *hashtable<int32_t>::hmap = NULL;
-template<>
-thread_local int64_t *hashtable<int64_t>::hmap = NULL;
-template<>
-thread_local long hashtable<int32_t>::size = 0;
-template<>
-thread_local long hashtable<int64_t>::size = 0;
 
 template<class T>
 long unique_v2(long n, const T *input, T *output) {

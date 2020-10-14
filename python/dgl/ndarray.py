@@ -124,6 +124,9 @@ def cast_to_signed(arr):
     """
     return _CAPI_DGLArrayCastToSigned(arr)
 
+def unique(arr):
+    return _CAPI_DGLArrayUnique(arr)
+
 def exist_shared_mem_array(name):
     """ Check the existence of shared-memory array.
 

@@ -26,6 +26,89 @@ namespace rpc {
 // Communicator handler type
 typedef void* CommunicatorHandle;
 
+/*! \brief Handle information for async pull */
+class Future {
+ public:
+  ~Future() {
+    /* We need to delete the temp data manully here */
+    delete local_ids;
+    delete local_ids_orginal;
+    delete local_data_shape;
+    delete remote_ids;
+    delete remote_ids_original;
+  }
+  
+  /*!
+   * \brief Information needed by wait api
+   */
+
+  /*!
+   * \brief message sequence
+   */
+  int msg_seq;
+
+  /*!
+   * \brief count of remote messages
+   */
+  int msg_count;
+
+  /*!
+   * \brief server count on each machine
+   */
+  int group_count;
+
+  /*!
+   * \brief row size of the target data
+   */
+  int row_size;
+
+  /*!
+   * \brief data size of the target data
+   */
+  size_t data_size;
+
+  /*!
+   * \brief size of the data ID
+   */
+  dgl_id_t id_size;
+
+  /*!
+   * \brief data type of the target data
+   */
+  DLDataType dtype;
+
+  /*!
+   * \brief local target data buffer
+   */
+  char* local_data_char;
+
+  /*!
+   * \brief local data id
+   */
+  std::vector<dgl_id_t>* local_ids;
+
+  /*!
+   * \brief original index of local data id
+   */
+  std::vector<dgl_id_t>* local_ids_orginal;
+
+  /*!
+   * \brief shape of the local data
+   */
+  std::vector<int64_t>* local_data_shape;
+
+  /*!
+   * \brief remote data id
+   */
+  std::vector<std::vector<dgl_id_t> >* remote_ids;
+
+  /*!
+   * \brief original index of remote data id
+   */  
+  std::vector<std::vector<dgl_id_t> >* remote_ids_original;
+};
+
+
 /*! \brief Context information for RPC communication */
 struct RPCContext {
   /*!

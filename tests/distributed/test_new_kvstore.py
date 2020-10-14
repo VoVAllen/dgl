@@ -255,6 +255,22 @@ def start_client(num_clients, num_servers):
     assert_array_equal(F.asnumpy(res), F.asnumpy(data_tensor))
     res = kvclient.pull(name='data_2', id_tensor=id_tensor)
     assert_array_equal(F.asnumpy(res), F.asnumpy(data_tensor))
+    # Test async_pull
+    kvclient.barrier()
+    fut = kvclient.async_pull(name='data_0', id_tensor=id_tensor)
+    # We can do the other work here. For example, push some data to server
+    # or do some local computation
+    time.sleep(1)
+    kvclient.push(name='data_1',
+                  id_tensor=id_tensor,
+                  data_tensor=data_tensor)
+    kvclient.push(name='data_2',
+                  id_tensor=id_tensor,
+                  data_tensor=data_tensor)
+    time.sleep(1)
+    # Wait on future
+    res = fut.wait()
+    assert_array_equal(F.asnumpy(res), F.asnumpy(data_tensor))
 
     # Test delete data
     kvclient.delete_data('data_0')

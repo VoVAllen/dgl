@@ -1243,6 +1243,45 @@ class KVClient(object):
         """
         return elem.server_id
 
+    def async_pull(self, name, id_tensor):
+        """Pull message from KVServer in an asynchronous way.
+
+        For many cases, users may want asynchronous pull to speedup the training.
+        Using async_pull, users can issue an request to the kvserver, and then just go back
+        to the other work, instead of waiting on the socket. The async_pull will return a Future
+        object which can be wait on. Once the message come back from the server, the wait() api
+        will return the real data.
+
+        Parameters
+        ----------
+        name : str
+            data name
+        id_tensor : tensor
+            a vector storing the ID list
+
+        Returns
+        -------
+        Future
+            A Future object that can be waited on.
+        """
+        assert len(name) > 0, 'name cannot be empty.'
+        id_tensor = utils.toindex(id_tensor)
+        id_tensor = id_tensor.tousertensor()
+        assert F.ndim(id_tensor) == 1, 'ID must be a vector.'
+        if self._pull_handlers[name] is default_pull_handler: # Use fast code in C++
+            part_id = self._part_policy[name].to_partid(id_tensor)
+            # return a future object
+            future = rpc.async_pull(name, id_tensor, part_id, KVSTORE_PULL,
+                                  self._machine_count,
+                                  self._group_count,
+                                  self._machine_id,
+                                  self._client_id,
+                                  self._data_store[name],
+                                  self._part_policy[name])
+            return future
+        else:
+            raise RuntimeError('async_pull for udf pull handler is not implemented yet.')
+
 KVCLIENT = None
 
 def init_kvstore(ip_config, num_servers, role):

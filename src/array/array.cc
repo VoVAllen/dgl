@@ -1016,6 +1016,85 @@ DGL_REGISTER_GLOBAL("ndarray._CAPI_DGLArrayCastToSigned")
 }  // namespace aten
 }  // namespace dgl
 
+template<class T>
+std::vector<T> &get_vector() {
+  static thread_local std::vector<T> vec;
+  return vec;
+}
+
+template<class T>
+class hashtable
+{
+  std::vector<T> &hmap;
+  T mask;
+ public:
+  hashtable(long n): hmap(get_vector<T>()) {
+    long new_size;
+    for (new_size=1; new_size<3*n; new_size*=2);
+    mask = new_size-1;
+    if (new_size > (long) hmap.size()) {
+      hmap.resize(new_size, -1);
+    } else {
+      for (long i = 0; i < new_size; i++)
+        hmap[i] = -1;
+    }
+  }
+
+  ~hashtable() {
+  }
+
+  bool insert(T k) {
+    long j;
+    for (j=(k&mask); hmap[j]!=-1 && hmap[j]!=k; j=((j+1)&mask));
+    if (hmap[j] == -1) {
+      hmap[j] = k;
+      return true;
+    } else {
+      return false;
+    }
+  }
+};
+
+template<class T>
+long unique_v2(long n, const T *input, T *output) {
+  hashtable<T> map(n);
+  long nuniq, i;
+  for (nuniq=0, i=0; i<n; i++) {
+    T k = input[i];
+    bool exist = map.insert(k);
+    if (exist) {
+      output[nuniq++] = k;
+    }
+  }
+
+  return nuniq;
+}
+
+namespace dgl {
+namespace aten {
+
+DGL_REGISTER_GLOBAL("ndarray._CAPI_DGLArrayUnique")
+.set_body([] (DGLArgs args, DGLRetValue* rv) {
+    NDArray array = args[0];
+    long len = array->shape[0];
+    CHECK_EQ(array->dtype.code, kDLInt);
+
+    long new_len;
+    NDArray output = NDArray::Empty({len}, array->dtype, array->ctx);
+    ATEN_ID_TYPE_SWITCH(array->dtype, Type, {
+      const Type *in_data = static_cast<Type *>(array->data);
+      Type *out_data = static_cast<Type *>(output->data);
+      new_len = unique_v2(len, in_data, out_data);
+    });
+    CHECK_LE(new_len, len);
+    std::vector<int64_t> shape(array->shape, array->shape + array->ndim);
+    shape[0] = new_len;
+    *rv = output.CreateView(shape, output->dtype, 0);
+  });
+
+}  // namespace aten
+}  // namespace dgl
+
 std::ostream& operator << (std::ostream& os, dgl::runtime::NDArray array) {
   return os << dgl::aten::ToDebugString(array);
 }

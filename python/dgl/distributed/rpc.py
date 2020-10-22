@@ -988,20 +988,32 @@ def fast_pull(name, id_tensor, part_id, service_id,
 
 class Future(ObjectBase):
     """Future is returned by async_pull() API and user can wait on
-    this object for the actualdata come back.
+    this object for the actual data coming back from kvserver.
 
     Parameters
     ----------
     future_handler
-        A C handler of the Future class. This handler is returned by
-        the C api _CAPI_DGLRPCAsyncPull().
+        A C handler of the Future class. 
+        This handler is returned by the api _CAPI_DGLRPCAsyncPull().
     """
     def __init__(self, future_handler):
         self._c_handler = future_handler
 
-    def wait(self):
-        res_tensor = _CAPI_DGLRPCWaitPullFuture(self._c_handler)
-        return F.zerocopy_from_dgl_ndarray(res_tensor)
+    def handler(self):
+        """Get C handler"""
+        return self._c_handler
+
+    def name(self):
+        """Get data name of this future object"""
+        pass
+
+    def id_tensor(self):
+        """Get ID tensot of this future object"""
+        pass
+
+    def msg_seq(self):
+        """Get message sequence of this future object"""
+        pass
 
 def async_pull(name, id_tensor, part_id, service_id,
                machine_count, group_count, machine_id,
@@ -1051,6 +1063,26 @@ def async_pull(name, id_tensor, part_id, service_id,
                                            F.zerocopy_to_dgl_ndarray(g2l_id),
                                            F.zerocopy_to_dgl_ndarray(local_data))
     return Future(future_handler)
+
+def wait(future_list):
+    """wait() api used by kvclient.
+
+    Parameters
+    ----------
+    future_list : list of Future
+        A list of Future objects that can be waited on.
+
+    Returns
+    -------
+    A list of tensor
+    """
+    res_tensor = []
+    for fut in future_list:
+        _CAPI_DGLRPCAddFutureHandler(fut.handler())
+    tensor_list = _CAPIRPCAsyncPullWait()
+    for tensor in tensor_list:
+        res_tensor.append(F.zerocopy_from_dgl_ndarray(tensor))
+    return res_tensor
 
 def register_ctrl_c():
     """HandleCtrlC Register for handling Ctrl+C event.

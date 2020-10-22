@@ -27,21 +27,7 @@ namespace rpc {
 typedef void* CommunicatorHandle;
 
 /*! \brief Handle information for async pull */
-class Future {
- public:
-  ~Future() {
-    /* We need to delete the temp data manully here */
-    delete local_ids;
-    delete local_ids_orginal;
-    delete local_data_shape;
-    delete remote_ids;
-    delete remote_ids_original;
-  }
-  
-  /*!
-   * \brief Information needed by wait api
-   */
-
+struct Future {
   /*!
    * \brief message sequence
    */
@@ -85,29 +71,77 @@ class Future {
   /*!
    * \brief local data id
    */
-  std::vector<dgl_id_t>* local_ids;
+  std::vector<dgl_id_t> local_ids;
 
   /*!
    * \brief original index of local data id
    */
-  std::vector<dgl_id_t>* local_ids_orginal;
+  std::vector<dgl_id_t> local_ids_orginal;
 
   /*!
    * \brief shape of the local data
    */
-  std::vector<int64_t>* local_data_shape;
+  std::vector<int64_t> local_data_shape;
 
   /*!
    * \brief remote data id
    */
-  std::vector<std::vector<dgl_id_t> >* remote_ids;
+  std::vector<std::vector<dgl_id_t> > remote_ids;
 
   /*!
    * \brief original index of remote data id
    */  
-  std::vector<std::vector<dgl_id_t> >* remote_ids_original;
+  std::vector<std::vector<dgl_id_t> > remote_ids_original;
 };
 
+/*! \brief RPC message data structure
+ *
+ * This structure is exposed to Python and can be used as argument or return value
+ * in C API.
+ */
+struct RPCMessage : public runtime::Object {
+  /*! \brief Service ID */
+  int32_t service_id;
+
+  /*! \brief Sequence number of this message. */
+  int64_t msg_seq;
+
+  /*! \brief Client ID. */
+  int32_t client_id;
+
+  /*! \brief Server ID. */
+  int32_t server_id;
+
+  /*! \brief Payload buffer carried by this request.*/
+  std::string data;
+
+  /*! \brief Extra payloads in the form of tensors.*/
+  std::vector<runtime::NDArray> tensors;
+
+  bool Load(dmlc::Stream* stream) {
+    stream->Read(&service_id);
+    stream->Read(&msg_seq);
+    stream->Read(&client_id);
+    stream->Read(&server_id);
+    stream->Read(&data);
+    stream->Read(&tensors);
+    return true;
+  }
+
+  void Save(dmlc::Stream* stream) const {
+    stream->Write(service_id);
+    stream->Write(msg_seq);
+    stream->Write(client_id);
+    stream->Write(server_id);
+    stream->Write(data);
+    stream->Write(tensors);
+  }
+
+  static constexpr const char* _type_key = "rpc.RPCMessage";
+  DGL_DECLARE_OBJECT_TYPE_INFO(RPCMessage, runtime::Object);
+};
+
+DGL_DEFINE_OBJECT_REF(RPCMessageRef, RPCMessage);
 
 /*! \brief Context information for RPC communication */
 struct RPCContext {
@@ -175,6 +209,16 @@ struct RPCContext {
    */
   std::shared_ptr<ServerState> server_state;
 
+  /*!
+   * \brief A list of Future that can be waited on.
+   */
+  std::vector<Future*> future_list;
+
+  /*!
+   * \brief Key is msg_seq and value is a list of RPCMessage
+   */
+  std::unordered_map<int, std::vector<RPCMessage*> > msg_buffer;
+
   /*! \brief Get the thread-local RPC context structure */
   static RPCContext *ThreadLocal() {
     return dmlc::ThreadLocalStore<RPCContext>::Get();
@@ -191,57 +235,20 @@ struct RPCContext {
     t->num_servers_per_machine = 0;
     t->sender = std::shared_ptr<network::Sender>();
     t->receiver = std::shared_ptr<network::Receiver>();
+    // clear future_list
+    for (int i = 0; i < t->future_list.size(); ++i) {
+      delete t->future_list[i];
+    }
+    t->future_list.clear();
+    // clear msg_buffer
+    for (auto it = t->msg_buffer.begin(); it != t->msg_buffer.end(); ++it) {
+      for (int i = 0; i < it->second.size(); ++i) {
+        delete it->second[i];
+      }
+    }
+    t->msg_buffer.clear();
   }
 };
-
-/*! \brief RPC message data structure
- *
- * This structure is exposed to Python and can be used as argument or return value
- * in C API.
- */
-struct RPCMessage : public runtime::Object {
-  /*! \brief Service ID */
-  int32_t service_id;
-
-  /*! \brief Sequence number of this message. */
-  int64_t msg_seq;
-
-  /*! \brief Client ID. */
-  int32_t client_id;
-
-  /*! \brief Server ID. */
-  int32_t server_id;
-
-  /*! \brief Payload buffer carried by this request.*/
-  std::string data;
-
-  /*! \brief Extra payloads in the form of tensors.*/
-  std::vector<runtime::NDArray> tensors;
-
-  bool Load(dmlc::Stream* stream) {
-    stream->Read(&service_id);
-    stream->Read(&msg_seq);
-    stream->Read(&client_id);
-    stream->Read(&server_id);
-    stream->Read(&data);
-    stream->Read(&tensors);
-    return true;
-  }
-
-  void Save(dmlc::Stream* stream) const {
-    stream->Write(service_id);
-    stream->Write(msg_seq);
-    stream->Write(client_id);
-    stream->Write(server_id);
-    stream->Write(data);
-    stream->Write(tensors);
-  }
-
-  static constexpr const char* _type_key = "rpc.RPCMessage";
-  DGL_DECLARE_OBJECT_TYPE_INFO(RPCMessage, runtime::Object);
-};
-
-DGL_DEFINE_OBJECT_REF(RPCMessageRef, RPCMessage);
 
 /*! \brief RPC status flag */
 enum RPCStatus {

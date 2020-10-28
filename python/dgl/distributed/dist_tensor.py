@@ -178,6 +178,8 @@ class DistTensor:
     def __len__(self):
         return self._shape[0]
 
+    def prefetch(self, )
+
     @property
     def part_policy(self):
         '''Return the partition policy

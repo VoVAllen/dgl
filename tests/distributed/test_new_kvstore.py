@@ -397,11 +397,3 @@ if __name__ == '__main__':
     test_partition_policy()
     test_kv_store()
     test_kv_multi_role()
-
-# async_pull will return a list of future objects
-future_list = kvclient.async_pull(['data_a', 'data_b', 'data_c'], 
-                                  [ID_a, ID_b, ID_c])
-# Then we can do anything here
-...
-# Wait on future
-tensors = kvclient.wait(future_list)

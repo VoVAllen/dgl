@@ -571,7 +571,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAsyncPull")
   dgl_id_t* ID_data = static_cast<dgl_id_t*>(ID->data);
   dgl_id_t* part_id_data = static_cast<dgl_id_t*>(part_id->data);
   dgl_id_t* local_id_data = static_cast<dgl_id_t*>(local_id->data);
-  char* local_data_char = static_cast<char*>(local_data->data);
+  char* const local_data_char = static_cast<char*>(local_data->data);
   fut->id_size = ID_size;
   fut->local_data_char = local_data_char;
   fut->remote_ids.resize(machine_count);
@@ -630,21 +630,20 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAsyncPull")
   *rv = fut;
 });
 
-DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAddFutureHandler")
-.set_body([] (DGLArgs args, DGLRetValue* rv) {
-  void* fut_handler = args[0];
-  dgl::rpc::Future* fut = reinterpret_cast<dgl::rpc::Future*>(fut_handler);
-  RPCContext::ThreadLocal()->future_list.push_back(fut);
-});
-
 DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
 .set_body([] (DGLArgs args, DGLRetValue* rv) {
+  List<Value> v_list = args[0];
   auto* t = dmlc::ThreadLocalStore<RPCContext>::Get();
-  int future_count = t->future_list.size();
+  std::vector<dgl::rpc::Future*> future_list;
+  for (Value val : v_list) {
+    void* future = val->data;
+    future_list.push_back(reinterpret_cast<dgl::rpc::Future*>(future));
+  }
+  int future_count = future_list.size();
   std::unordered_map<int, NDArray> tensor_map;
   // Create a set of empty NDArray
   for (int i = 0; i < future_count; ++i) {
-    auto future = t->future_list[i];
+    auto future = future_list[i];
     future->local_data_shape[0] = future->id_size;
     NDArray tensor = NDArray::Empty(future->local_data_shape,
                                     future->dtype,
@@ -655,7 +654,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
   // We copy local data concurrently for all futures.
 #pragma omp parallel for
   for (int n = 0; n < future_count; ++n) {
-    auto future = t->future_list[n];
+    auto future = future_list[n];
     int row_size = future->row_size;
     char* return_data = static_cast<char*>(tensor_map[future->msg_seq]->data);
     for (int64_t i = 0; i < future->local_ids.size(); ++i) {
@@ -669,14 +668,12 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
   }
   // Recv remote messages
   int total_msg_count = 0;
-  std::set<int> seq_set;
   std::vector<RPCMessage*> rpc_msg_list;
   std::unordered_map<int, dgl::rpc::Future*> fut_set;
   for (int i = 0; i < future_count; ++i) {
-    total_msg_count += t->future_list[i]->msg_count;
-    int msg_seq = t->future_list[i]->msg_seq;
-    seq_set.insert(msg_seq);
-    fut_set[msg_seq] = t->future_list[i];
+    total_msg_count += future_list[i]->msg_count;
+    int msg_seq = future_list[i]->msg_seq;
+    fut_set[msg_seq] = future_list[i];
     auto it = t->msg_buffer.find(msg_seq);
     if (it != t->msg_buffer.end()) {
       for (int j = 0; j < it->second.size(); ++j) {
@@ -692,7 +689,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
     // backend threads.
     int timeout = 0;
     RecvRPCMessage(msg, timeout);
-    if (seq_set.find(msg->msg_seq) != seq_set.end()) {
+    if (fut_set.find(msg->msg_seq) != fut_set.end()) {
       rpc_msg_list.push_back(msg);
     } else {
       t->msg_buffer[msg->msg_seq].push_back(msg);
@@ -718,10 +715,10 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
     delete msg;
   }
   // Clear future list
-  for (int i = 0; i < t->future_list.size(); ++i) {
-    delete t->future_list[i];
+  for (int i = 0; i < future_list.size(); ++i) {
+    delete future_list[i];
   }
-  t->future_list.clear();
+  future_list.clear();
   // return tensor list
   List<Value> ret_tensor_list;
   for (auto it = tensor_map.begin(); it != tensor_map.end(); ++it) {

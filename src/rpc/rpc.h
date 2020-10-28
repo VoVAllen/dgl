@@ -210,11 +210,6 @@ struct RPCContext {
   std::shared_ptr<ServerState> server_state;
 
   /*!
-   * \brief A list of Future that can be waited on.
-   */
-  std::vector<Future*> future_list;
-
-  /*!
    * \brief Key is msg_seq and value is a list of RPCMessage
    */
   std::unordered_map<int, std::vector<RPCMessage*> > msg_buffer;
@@ -235,11 +230,6 @@ struct RPCContext {
     t->num_servers_per_machine = 0;
     t->sender = std::shared_ptr<network::Sender>();
     t->receiver = std::shared_ptr<network::Receiver>();
-    // clear future_list
-    for (int i = 0; i < t->future_list.size(); ++i) {
-      delete t->future_list[i];
-    }
-    t->future_list.clear();
     // clear msg_buffer
     for (auto it = t->msg_buffer.begin(); it != t->msg_buffer.end(); ++it) {
       for (int i = 0; i < it->second.size(); ++i) {

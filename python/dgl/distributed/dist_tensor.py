@@ -239,7 +239,7 @@ class DistTensor:
         return fut[0]
 
     def wait(self, future):
-        """Wait a list of future
+        """Wait on a future
 
         Parameters
         ----------

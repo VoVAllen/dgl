@@ -42,8 +42,8 @@ def wait_subtensor(g, future_list, idx, device):
     """
     Wait prefecthed features and labels
     """
-    batch_inputs = (g.ndata['features'].wait([future_list[idx]]))[0]
-    batch_labels = (g.ndata['labels'].wait([future_list[idx+1]]))[0]
+    batch_inputs = (g.ndata['features'].wait(future_list[idx]))[0]
+    batch_labels = (g.ndata['labels'].wait(future_list[idx+1]))[0]
     batch_inputs = batch_inputs.to(device)
     batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels

@@ -236,7 +236,7 @@ def run(args, device, data):
             input_nodes = blocks[0].srcdata[dgl.NID]
             seeds = blocks[-1].dstdata[dgl.NID]
             if args.pre_fetch:
-                future_list += prefetech_subtensor(g, seeds, input_nodes)
+                future_list += prefetch_subtensor(g, seeds, input_nodes)
                 # input and labels are two future objects
                 total_prefetch += 2
                 # send 10 requests at each time

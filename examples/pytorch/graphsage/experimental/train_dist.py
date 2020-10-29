@@ -39,7 +39,7 @@ def prefetch_subtensor(g, seeds, input_nodes):
     labels_future = g.ndata['labels'].prefetch(seeds)
     return [inputs_future, labels_future]
 
-def wait_subtensor(g, future_queue, idx, device):
+def wait_subtensor(g, future_queue, device):
     """
     Wait prefecthed features and labels
     """

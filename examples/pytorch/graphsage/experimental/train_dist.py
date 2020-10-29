@@ -231,16 +231,19 @@ def run(args, device, data):
             # The nodes for output lies at the RHS side of the last block.
             input_nodes = blocks[0].srcdata[dgl.NID]
             seeds = blocks[-1].dstdata[dgl.NID]
-            future_list += prefetech_subtensor(g, seeds, input_nodes)
-            # input and labels are two future objects
-            prefetch_idx += 2
-            # send 5 requests at each time
-            if step % 5 != 0: 
-                continue
-            # Wait 1 future of inputs and labels
-            batch_inputs, batch_labels = wait_subtensor(future_list, prefetch_idx, device)
-            batch_labels = batch_labels.long()
+            if args.pre_fetch:
+                future_list += prefetech_subtensor(g, seeds, input_nodes)
+                # input and labels are two future objects
+                prefetch_idx += 2
+                # send 5 requests at each time
+                if step % 5 != 0: 
+                    continue
+                # Wait 1 future of inputs and labels
+                batch_inputs, batch_labels = wait_subtensor(future_list, prefetch_idx, device)
+            else:
+                batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 
+            batch_labels = batch_labels.long()
             num_seeds += len(blocks[-1].dstdata[dgl.NID])
             num_inputs += len(blocks[0].srcdata[dgl.NID])
             blocks = [block.to(device) for block in blocks]
@@ -341,6 +344,7 @@ if __name__ == '__main__':
         help="Number of sampling processes. Use 0 for no extra process.")
     parser.add_argument('--local_rank', type=int, help='get rank of the process')
     parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
+    parser.add_argument('--pre_fetch', action='store_true', help='pre_fetch data')
     args = parser.parse_args()
     assert args.num_workers == int(os.environ.get('DGL_NUM_SAMPLER')), \
     'The num_workers should be the same value with num_samplers.'

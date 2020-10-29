@@ -222,13 +222,11 @@ class DistTensor:
         '''
         return self._name
 
-    def prefetch(self, name, idx):
+    def prefetch(self, idx):
         """Prefect data from distrubuted tensor
 
         Parameters
         ----------
-        name : str
-            data name
         idx : tensor
             data index
 
@@ -237,7 +235,7 @@ class DistTensor:
         Future
             A future object that can be waited on
         """
-        fut = self.kvstore.async_pull([name], [idx])
+        fut = self.kvstore.async_pull([self.name], [idx])
         return fut[0]
 
     def wait(self, fut_list):

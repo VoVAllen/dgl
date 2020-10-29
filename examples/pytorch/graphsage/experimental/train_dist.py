@@ -42,10 +42,12 @@ def wait_subtensor(future_list, idx, device):
     """
     Wait prefecthed features and labels
     """
-    res = g.ndata.wait([future_list[idx-2], future_list[idx-1]])
+    res = g.ndata.wait([future_list[idx], future_list[idx+1]])
+    # res[0]: batch_inputs
+    # res[1]: batch_labels
     res[0] = res[0].to(device)
     res[1] = res[1].to(device)
-    return res[0], res[1] # batch_inputs, batch_labels
+    return res[0], res[1]
 
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
@@ -211,6 +213,8 @@ def run(args, device, data):
     profiler.start()
     epoch = 0
     prefetch_idx = 0
+    total_prefetch = 0
+    prefetch_idx = 0
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -234,12 +238,13 @@ def run(args, device, data):
             if args.pre_fetch:
                 future_list += prefetech_subtensor(g, seeds, input_nodes)
                 # input and labels are two future objects
-                prefetch_idx += 2
-                # send 5 requests at each time
-                if step % 5 != 0: 
+                total_prefetch += 2
+                # send 10 requests at each time
+                if total_prefetch % 10 != 0: 
                     continue
                 # Wait 1 future of inputs and labels
                 batch_inputs, batch_labels = wait_subtensor(future_list, prefetch_idx, device)
+                prefetch_idx += 2
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 

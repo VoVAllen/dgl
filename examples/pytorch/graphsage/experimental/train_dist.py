@@ -5,6 +5,7 @@ import argparse, time, math
 import numpy as np
 from functools import wraps
 import tqdm
+import queue
 
 import dgl
 from dgl import DGLGraph
@@ -38,12 +39,12 @@ def prefetch_subtensor(g, seeds, input_nodes):
     labels_future = g.ndata['labels'].prefetch(seeds)
     return [inputs_future, labels_future]
 
-def wait_subtensor(g, future_list, idx, device):
+def wait_subtensor(g, future_queue, idx, device):
     """
     Wait prefecthed features and labels
     """
-    batch_inputs = (g.ndata['features'].wait(future_list[idx]))[0]
-    batch_labels = (g.ndata['labels'].wait(future_list[idx+1]))[0]
+    batch_inputs = (g.ndata['features'].wait(future_queue.get()))[0]
+    batch_labels = (g.ndata['labels'].wait(future_queue.get()))[0]
     batch_inputs = batch_inputs.to(device)
     batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels
@@ -211,9 +212,9 @@ def run(args, device, data):
     profiler = Profiler()
     profiler.start()
     epoch = 0
-    prefetch_idx = 0
     total_prefetch = 0
-    prefetch_idx = 0
+    future_queue = queue.Queue()
+    block_queue = queue.Queue()
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -228,22 +229,23 @@ def run(args, device, data):
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         step_time = []
-        future_list = []
         for step, blocks in enumerate(dataloader):
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
             input_nodes = blocks[0].srcdata[dgl.NID]
             seeds = blocks[-1].dstdata[dgl.NID]
             if args.pre_fetch:
-                future_list += prefetch_subtensor(g, seeds, input_nodes)
+                fut = prefetch_subtensor(g, seeds, input_nodes)
+                future_queue.put(fut)
+                block_queue.put(blocks)
                 # input and labels are two future objects
-                total_prefetch += 2
-                # send 10 requests at each time
-                if total_prefetch % 10 != 0: 
+                total_prefetch += 1
+                # send 5 requests at each time
+                if total_prefetch % 5 != 0: 
                     continue
                 # Wait 1 future of inputs and labels
-                batch_inputs, batch_labels = wait_subtensor(g, future_list, prefetch_idx, device)
-                prefetch_idx += 2
+                batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
+                blocks = block_queue.get()
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 

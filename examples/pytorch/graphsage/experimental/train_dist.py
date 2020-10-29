@@ -267,7 +267,8 @@ def run(args, device, data):
             optimizer.step()
             update_time += time.time() - compute_end
 
-            step_t = time.time() - tic_step
+            step_t = 0
+            #step_t = time.time() - tic_step
             step_time.append(step_t)
             iter_tput.append(num_seeds / (step_t))
             if step % args.log_every == 0:

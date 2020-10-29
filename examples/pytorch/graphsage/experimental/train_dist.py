@@ -30,6 +30,23 @@ def load_subtensor(g, seeds, input_nodes, device):
     batch_labels = g.ndata['labels'][seeds].to(device)
     return batch_inputs, batch_labels
 
+def prefetch_subtensor(g, seeds, input_nodes):
+    """
+    Prefecth features and labels of a set of nodes
+    """
+    inputs_future = g.ndata.prefetch('features', input_nodes)
+    labels_future = g.ndata.prefetch('labels', seeds)
+    return [inputs_future, labels_future]
+
+def wait_subtensor(future_list, idx, device):
+    """
+    Wait prefecthed features and labels
+    """
+    res = g.ndata.wait([future_list[idx-2], future_list[idx-1]])
+    res[0] = res[0].to(device)
+    res[1] = res[1].to(device)
+    return res[0], res[1] # batch_inputs, batch_labels
+
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
         self.g = g
@@ -193,6 +210,7 @@ def run(args, device, data):
     profiler = Profiler()
     profiler.start()
     epoch = 0
+    prefetch_idx = 0
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -207,18 +225,21 @@ def run(args, device, data):
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         step_time = []
+        future_list = []
         for step, blocks in enumerate(dataloader):
-            tic_step = time.time()
-            sample_time += tic_step - start
-
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
-            start = time.time()
             input_nodes = blocks[0].srcdata[dgl.NID]
             seeds = blocks[-1].dstdata[dgl.NID]
-            batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
+            future_list += prefetech_subtensor(g, seeds, input_nodes)
+            # input and labels are two future objects
+            prefetch_idx += 2
+            # send 5 requests at each time
+            if step % 5 != 0: 
+                continue
+            # Wait 1 future of inputs and labels
+            batch_inputs, batch_labels = wait_subtensor(future_list, prefetch_idx, device)
             batch_labels = batch_labels.long()
-            copy_time += time.time() - start
 
             num_seeds += len(blocks[-1].dstdata[dgl.NID])
             num_inputs += len(blocks[0].srcdata[dgl.NID])

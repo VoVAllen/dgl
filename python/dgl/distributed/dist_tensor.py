@@ -238,16 +238,16 @@ class DistTensor:
         fut = self.kvstore.async_pull([self.name], [idx])
         return fut[0]
 
-    def wait(self, fut_list):
+    def wait(self, future):
         """Wait a list of future
 
         Parameters
         ----------
-        fut_list : List
-            A list of future
+        future: Future
+            A Future object that can be waited on
 
         Returns
         -------
         A list of tensors
         """
-        return self.kvstore.wait(fut_list)
+        return self.kvstore.wait([future])

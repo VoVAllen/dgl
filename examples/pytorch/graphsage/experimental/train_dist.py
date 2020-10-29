@@ -38,16 +38,15 @@ def prefetch_subtensor(g, seeds, input_nodes):
     labels_future = g.ndata['labels'].prefetch(seeds)
     return [inputs_future, labels_future]
 
-def wait_subtensor(future_list, idx, device):
+def wait_subtensor(g, future_list, idx, device):
     """
     Wait prefecthed features and labels
     """
-    res = g.ndata.wait([future_list[idx], future_list[idx+1]])
-    # res[0]: batch_inputs
-    # res[1]: batch_labels
-    res[0] = res[0].to(device)
-    res[1] = res[1].to(device)
-    return res[0], res[1]
+    batch_inputs = (g.ndata['features'].wait([future_list[idx]]))[0]
+    batch_labels = (g.ndata['labels'].wait([future_list[idx+1]]))[0]
+    batch_inputs = batch_inputs.to(device)
+    batch_labels = batch_labels.to(device)
+    return batch_inputs, batch_labels
 
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
@@ -243,7 +242,7 @@ def run(args, device, data):
                 if total_prefetch % 10 != 0: 
                     continue
                 # Wait 1 future of inputs and labels
-                batch_inputs, batch_labels = wait_subtensor(future_list, prefetch_idx, device)
+                batch_inputs, batch_labels = wait_subtensor(g, future_list, prefetch_idx, device)
                 prefetch_idx += 2
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)

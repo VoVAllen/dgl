@@ -215,6 +215,7 @@ def run(args, device, data):
     total_prefetch = 0
     future_queue = queue.Queue()
     block_queue = queue.Queue()
+    step_queue = queue.Queue()
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -238,6 +239,7 @@ def run(args, device, data):
                 fut = prefetch_subtensor(g, seeds, input_nodes)
                 future_queue.put(fut)
                 block_queue.put(blocks)
+                step_queue.put(step)
                 # input and labels are two future objects
                 total_prefetch += 1
                 # send 5 requests at each time
@@ -246,6 +248,7 @@ def run(args, device, data):
                 # Wait 1 future of inputs and labels
                 batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
                 blocks = block_queue.get()
+                step = step_queue.get()
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 

@@ -1080,9 +1080,10 @@ def wait(future_list):
     A list of tensor
     """
     res_tensor = []
+    ptr_list = []
     for fut in future_list:
-        _CAPI_DGLRPCAddFutureHandler(fut.handler())
-    tensor_list = _CAPIRPCAsyncPullWait()
+        ptr_list.append(fut.handler())
+    tensor_list = _CAPIRPCAsyncPullWait(ptr_list)
     for tensor in tensor_list:
         res_tensor.append(F.zerocopy_from_dgl_ndarray(tensor))
     return res_tensor

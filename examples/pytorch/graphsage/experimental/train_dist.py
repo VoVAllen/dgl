@@ -284,9 +284,8 @@ def run(args, device, data):
             start = time.time()
 
         toc = time.time()
-        rank = 000
         print('Part {}, Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
-            rank, toc - tic, sample_time, copy_time, forward_time, backward_time, update_time, num_seeds, num_inputs))
+            g.rank(), toc - tic, sample_time, copy_time, forward_time, backward_time, update_time, num_seeds, num_inputs))
         epoch += 1
 
 

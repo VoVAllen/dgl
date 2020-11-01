@@ -79,7 +79,7 @@ def forward_backward_update(num_seeds,
     backward_time = compute_end - forward_end
     optimizer.step()
     update_time = time.time() - compute_end
-    return forward_time, backward_time, update_time, batch_pred
+    return forward_time, backward_time, update_time, batch_pred, loss
 
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
@@ -282,15 +282,15 @@ def run(args, device, data):
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 
-            f_time, b_time, up_time, batch_pred = forward_backward_update(num_seeds, 
-                                                                          num_inputs, 
-                                                                          batch_inputs, 
-                                                                          batch_labels, 
-                                                                          blocks, 
-                                                                          model,
-                                                                          loss_fcn,
-                                                                          optimizer,
-                                                                          device)
+            f_time, b_time, up_time, batch_pred, loss = forward_backward_update(num_seeds, 
+                                                                                num_inputs, 
+                                                                                batch_inputs, 
+                                                                                batch_labels, 
+                                                                                blocks, 
+                                                                                model,
+                                                                                loss_fcn,
+                                                                                optimizer,
+                                                                                device)
             forward_time += f_time
             backward_time += b_time
             update_time += up_time
@@ -310,15 +310,15 @@ def run(args, device, data):
             batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
             blocks = block_queue.get()
 
-            f_time, b_time, up_time, batch_pred = forward_backward_update(num_seeds,
-                                                                          num_inputs,
-                                                                          batch_inputs,
-                                                                          batch_labels,
-                                                                          blocks,
-                                                                          model,
-                                                                          loss_fcn,
-                                                                          optimizer,
-                                                                          device)
+            f_time, b_time, up_time, batch_pred, loss = forward_backward_update(num_seeds,
+                                                                                num_inputs,
+                                                                                batch_inputs,
+                                                                                batch_labels,
+                                                                                blocks,
+                                                                                model,
+                                                                                loss_fcn,
+                                                                                optimizer,
+                                                                                device)
             forward_time += f_time
             backward_time += b_time
             update_time += up_time

@@ -50,7 +50,7 @@ def wait_subtensor(g, future_queue, device):
     batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels
 
-def forward_backward_update(batch_inputs, batch_labels, blocks):
+def forward_backward_update(num_seeds, batch_inputs, batch_labels, blocks):
     """
     Perform forward + backward (allreduce) + update
     """
@@ -274,7 +274,7 @@ def run(args, device, data):
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 
-            f_time, b_time, up_time = forward_backward_update(batch_inputs, batch_labels, blocks)
+            f_time, b_time, up_time = forward_backward_update(num_seeds, batch_inputs, batch_labels, blocks)
             forward_time += f_time
             backward_time += b_time
             update_time += up_time
@@ -294,7 +294,7 @@ def run(args, device, data):
             batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
             blocks = block_queue.get()
 
-            f_time, b_time, up_time = forward_backward_update(batch_inputs, batch_labels, blocks)
+            f_time, b_time, up_time = forward_backward_update(num_seeds, batch_inputs, batch_labels, blocks)
             forward_time += f_time
             backward_time += b_time
             update_time += up_time

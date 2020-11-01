@@ -57,7 +57,8 @@ def forward_backward_update(num_seeds,
                             blocks, 
                             model, 
                             loss_fcn, 
-                            optimizer):
+                            optimizer,
+                            device):
     """
     Perform forward + backward (allreduce) + update
     """
@@ -288,7 +289,8 @@ def run(args, device, data):
                                                               blocks, 
                                                               model,
                                                               loss_fcn,
-                                                              optimizer)
+                                                              optimizer,
+                                                              device)
             forward_time += f_time
             backward_time += b_time
             update_time += up_time
@@ -315,7 +317,8 @@ def run(args, device, data):
                                                               blocks,
                                                               model,
                                                               loss_fcn,
-                                                              optimizer)
+                                                              optimizer,
+                                                              device)
             forward_time += f_time
             backward_time += b_time
             update_time += up_time

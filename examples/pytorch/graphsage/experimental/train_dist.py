@@ -214,9 +214,7 @@ def run(args, device, data):
     profiler.start()
     epoch = 0
     total_prefetch = 0
-    future_queue = queue.Queue()
-    block_queue = queue.Queue()
-    step_queue = queue.Queue()
+    
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -227,6 +225,8 @@ def run(args, device, data):
         update_time = 0
         num_seeds = 0
         num_inputs = 0
+        future_queue = queue.Queue()
+        block_queue = queue.Queue()
         start = time.time()
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
@@ -240,7 +240,6 @@ def run(args, device, data):
                 fut = prefetch_subtensor(g, seeds, input_nodes)
                 future_queue.put(fut)
                 block_queue.put(blocks)
-                step_queue.put(step)
                 # input and labels are two future objects
                 total_prefetch += 1
                 # send 5 requests at each time
@@ -249,7 +248,6 @@ def run(args, device, data):
                 # Wait 1 future of inputs and labels
                 batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
                 blocks = block_queue.get()
-                step = step_queue.get()
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 
@@ -283,18 +281,42 @@ def run(args, device, data):
                     g.rank(), epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc, np.sum(step_time[-args.log_every:])))
             start = time.time()
 
+        while future_queue.empty() == False:
+            batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
+            blocks = block_queue.get()
+
+            batch_labels = batch_labels.long()
+            num_seeds += len(blocks[-1].dstdata[dgl.NID])
+            num_inputs += len(blocks[0].srcdata[dgl.NID])
+            blocks = [block.to(device) for block in blocks]
+            batch_labels = batch_labels.to(device)
+            # Compute loss and prediction
+            start = time.time()
+            batch_pred = model(blocks, batch_inputs)
+            loss = loss_fcn(batch_pred, batch_labels)
+            forward_end = time.time()
+            optimizer.zero_grad()
+            loss.backward()
+            compute_end = time.time()
+            forward_time += forward_end - start
+            backward_time += compute_end - forward_end
+
+            optimizer.step()
+            update_time += time.time() - compute_end
+
+
         toc = time.time()
         print('Part {}, Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
             g.rank(), toc - tic, sample_time, copy_time, forward_time, backward_time, update_time, num_seeds, num_inputs))
         epoch += 1
 
 
-        #if epoch % args.eval_every == 0 and epoch != 0:
-        #    start = time.time()
-        #    val_acc, test_acc = evaluate(model.module, g, g.ndata['features'],
-        #                                 g.ndata['labels'], val_nid, test_nid, args.batch_size_eval, device)
-        #    print('Part {}, Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}'.format(g.rank(), val_acc, test_acc,
-        #                                                                          time.time() - start))
+        if epoch % args.eval_every == 0 and epoch != 0:
+            start = time.time()
+            val_acc, test_acc = evaluate(model.module, g, g.ndata['features'],
+                                         g.ndata['labels'], val_nid, test_nid, args.batch_size_eval, device)
+            print('Part {}, Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}'.format(g.rank(), val_acc, test_acc,
+                                                                                  time.time() - start))
 
     profiler.stop()
     print(profiler.output_text(unicode=True, color=True))

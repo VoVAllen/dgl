@@ -50,6 +50,29 @@ def wait_subtensor(g, future_queue, device):
     batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels
 
+def forward_backward_update(batch_inputs, batch_labels, blocks):
+    """
+    Perform forward + backward (allreduce) + update
+    """
+    batch_labels = batch_labels.long()
+    num_seeds += len(blocks[-1].dstdata[dgl.NID])
+    num_inputs += len(blocks[0].srcdata[dgl.NID])
+    blocks = [block.to(device) for block in blocks]
+    batch_labels = batch_labels.to(device)
+    # Compute loss and prediction
+    start = time.time()
+    batch_pred = model(blocks, batch_inputs)
+    loss = loss_fcn(batch_pred, batch_labels)
+    forward_end = time.time()
+    optimizer.zero_grad()
+    loss.backward()
+    compute_end = time.time()
+    forward_time = forward_end - start
+    backward_time = compute_end - forward_end
+    optimizer.step()
+    update_time = time.time() - compute_end
+    return forward_time, backward_time, update_time
+
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
         self.g = g
@@ -251,24 +274,10 @@ def run(args, device, data):
             else:
                 batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
 
-            batch_labels = batch_labels.long()
-            num_seeds += len(blocks[-1].dstdata[dgl.NID])
-            num_inputs += len(blocks[0].srcdata[dgl.NID])
-            blocks = [block.to(device) for block in blocks]
-            batch_labels = batch_labels.to(device)
-            # Compute loss and prediction
-            start = time.time()
-            batch_pred = model(blocks, batch_inputs)
-            loss = loss_fcn(batch_pred, batch_labels)
-            forward_end = time.time()
-            optimizer.zero_grad()
-            loss.backward()
-            compute_end = time.time()
-            forward_time += forward_end - start
-            backward_time += compute_end - forward_end
-
-            optimizer.step()
-            update_time += time.time() - compute_end
+            f_time, b_time, up_time = forward_backward_update(batch_inputs, batch_labels, blocks)
+            forward_time += f_time
+            backward_time += b_time
+            update_time += up_time
 
             step_t = 1.0
             #step_t = time.time() - tic_step
@@ -285,25 +294,10 @@ def run(args, device, data):
             batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
             blocks = block_queue.get()
 
-            batch_labels = batch_labels.long()
-            num_seeds += len(blocks[-1].dstdata[dgl.NID])
-            num_inputs += len(blocks[0].srcdata[dgl.NID])
-            blocks = [block.to(device) for block in blocks]
-            batch_labels = batch_labels.to(device)
-            # Compute loss and prediction
-            start = time.time()
-            batch_pred = model(blocks, batch_inputs)
-            loss = loss_fcn(batch_pred, batch_labels)
-            forward_end = time.time()
-            optimizer.zero_grad()
-            loss.backward()
-            compute_end = time.time()
-            forward_time += forward_end - start
-            backward_time += compute_end - forward_end
-
-            optimizer.step()
-            update_time += time.time() - compute_end
-
+            f_time, b_time, up_time = forward_backward_update(batch_inputs, batch_labels, blocks)
+            forward_time += f_time
+            backward_time += b_time
+            update_time += up_time
 
         toc = time.time()
         print('Part {}, Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(

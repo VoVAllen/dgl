@@ -5,6 +5,7 @@ import argparse, time, math
 import numpy as np
 from functools import wraps
 import tqdm
+import queue
 
 import dgl
 from dgl import DGLGraph
@@ -28,6 +29,24 @@ def load_subtensor(g, seeds, input_nodes, device):
     """
     batch_inputs = g.ndata['features'][input_nodes].to(device)
     batch_labels = g.ndata['labels'][seeds].to(device)
+    return batch_inputs, batch_labels
+
+def prefetch_subtensor(g, seeds, input_nodes):
+    """
+    Prefecth features and labels of a set of nodes
+    """
+    inputs_future = g.ndata['features'].prefetch(input_nodes)
+    labels_future = g.ndata['labels'].prefetch(seeds)
+    return [inputs_future, labels_future]
+
+def wait_subtensor(g, future, device):
+    """
+    Wait prefecthed features and labels
+    """
+    batch_inputs = (g.ndata['features'].wait(future[0]))[0]
+    batch_labels = (g.ndata['labels'].wait(future[1]))[0]
+    batch_inputs = batch_inputs.to(device)
+    batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels
 
 class NeighborSampler(object):
@@ -216,7 +235,8 @@ def run(args, device, data):
             start = time.time()
             input_nodes = blocks[0].srcdata[dgl.NID]
             seeds = blocks[-1].dstdata[dgl.NID]
-            batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
+            fut = prefetch_subtensor(g, seeds, input_nodes)
+            batch_inputs, batch_labels = wait_subtensor(g, fut, device)
             batch_labels = batch_labels.long()
             copy_time += time.time() - start
 

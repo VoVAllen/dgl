@@ -255,6 +255,52 @@ def start_client(num_clients, num_servers):
     assert_array_equal(F.asnumpy(res), F.asnumpy(data_tensor))
     res = kvclient.pull(name='data_2', id_tensor=id_tensor)
     assert_array_equal(F.asnumpy(res), F.asnumpy(data_tensor))
+    # Test async_pull
+    kvclient.barrier()
+    fut_list = kvclient.async_pull(name_list=['data_0'], id_tensor_list=[id_tensor])
+    # We can do the other work here. For example, push some data to server
+    # or do some local computation
+    time.sleep(1)
+    kvclient.push(name='data_1',
+                  id_tensor=id_tensor,
+                  data_tensor=data_tensor)
+    kvclient.push(name='data_2',
+                  id_tensor=id_tensor,
+                  data_tensor=data_tensor)
+    time.sleep(1)
+    # Wait on future
+    res = kvclient.wait(fut_list)
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    kvclient.push(name='data_0',
+                  id_tensor=id_tensor,
+                  data_tensor=data_tensor)
+    kvclient.barrier()
+    data_tensor = data_tensor * data_tensor
+    # Async pull many data
+    fut_list = kvclient.async_pull(name_list=['data_0','data_1','data_2'], 
+                                   id_tensor_list=[id_tensor, id_tensor, id_tensor])
+    res = kvclient.wait([fut_list[2]])
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    res = kvclient.wait([fut_list[0], fut_list[1]])
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    assert_array_equal(F.asnumpy(res[1]), F.asnumpy(data_tensor))
+    # Test async pull again
+    fut_list = kvclient.async_pull(name_list=['data_0'], id_tensor_list=[id_tensor])
+    fut_list += kvclient.async_pull(name_list=['data_1'], id_tensor_list=[id_tensor])
+    fut_list += kvclient.async_pull(name_list=['data_2'], id_tensor_list=[id_tensor])
+    res = kvclient.wait([fut_list[2]])
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    res = kvclient.wait([fut_list[1]])
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    res = kvclient.wait([fut_list[0]])
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    fut_list = kvclient.async_pull(name_list=['data_0'], id_tensor_list=[id_tensor])
+    fut_list += kvclient.async_pull(name_list=['data_1'], id_tensor_list=[id_tensor])
+    fut_list += kvclient.async_pull(name_list=['data_2'], id_tensor_list=[id_tensor])
+    res = kvclient.wait(fut_list)
+    assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
+    assert_array_equal(F.asnumpy(res[1]), F.asnumpy(data_tensor))
+    assert_array_equal(F.asnumpy(res[2]), F.asnumpy(data_tensor))
 
     # Test delete data
     kvclient.delete_data('data_0')

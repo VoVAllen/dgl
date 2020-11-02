@@ -546,5 +546,186 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCFastPull")
   *rv = res_tensor;
 });
 
+DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAsyncPull")
+.set_body([] (DGLArgs args, DGLRetValue* rv) {
+  // input
+  std::string name = args[0];
+  int local_machine_id = args[1];
+  int machine_count = args[2];
+  int group_count = args[3];
+  int client_id = args[4];
+  int service_id = args[5];
+  int msg_seq = args[6];
+  std::string pickle_data = args[7];
+  NDArray ID = args[8];
+  NDArray part_id = args[9];
+  NDArray local_id = args[10];
+  NDArray local_data = args[11];
+  // The fut will be deleted when user invoke the wait() API
+  dgl::rpc::Future *fut = new Future();
+  fut->msg_seq = msg_seq;
+  fut->group_count = group_count;
+  fut->dtype = local_data->dtype;
+  // Data
+  dgl_id_t ID_size = ID.GetSize() / sizeof(dgl_id_t);
+  dgl_id_t* ID_data = static_cast<dgl_id_t*>(ID->data);
+  dgl_id_t* part_id_data = static_cast<dgl_id_t*>(part_id->data);
+  dgl_id_t* local_id_data = static_cast<dgl_id_t*>(local_id->data);
+  char* const local_data_char = static_cast<char*>(local_data->data);
+  fut->id_size = ID_size;
+  fut->local_data_char = local_data_char;
+  fut->remote_ids.resize(machine_count);
+  fut->remote_ids_original.resize(machine_count);
+  // Get row size (in bytes)
+  int row_size = 1;
+  for (int i = 0; i < local_data->ndim; ++i) {
+    fut->local_data_shape.push_back(local_data->shape[i]);
+    if (i != 0) {
+      row_size *= local_data->shape[i];
+    }
+  }
+  row_size *= (local_data->dtype.bits / 8);
+  size_t data_size = local_data.GetSize();
+  CHECK_GT(fut->local_data_shape.size(), 0);
+  CHECK_EQ(row_size * fut->local_data_shape[0], data_size);
+  fut->row_size = row_size;
+  fut->data_size = data_size;
+  // Get local id (used in local machine) and
+  // remote id (send to remote machine)
+  dgl_id_t idx = 0;
+  for (dgl_id_t i = 0; i < ID_size; ++i) {
+    dgl_id_t p_id = part_id_data[i];
+    if (p_id == local_machine_id) {
+      dgl_id_t l_id = local_id_data[idx++];
+      CHECK_LT(l_id, fut->local_data_shape[0]);
+      CHECK_GE(l_id, 0);
+      fut->local_ids.push_back(l_id);
+      fut->local_ids_orginal.push_back(i);
+    } else {
+      CHECK_LT(p_id, machine_count) << "Invalid partition ID.";
+      dgl_id_t id = ID_data[i];
+      fut->remote_ids[p_id].push_back(id);
+      fut->remote_ids_original[p_id].push_back(i);
+    }
+  }
+  // send remote id
+  int msg_count = 0;
+  for (int i = 0; i < fut->remote_ids.size(); ++i) {
+    if (fut->remote_ids[i].size() != 0) {
+      RPCMessage msg;
+      msg.service_id = service_id;
+      msg.msg_seq = msg_seq;
+      msg.client_id = client_id;
+      int lower = i*group_count;
+      int upprt = (i+1)*group_count;
+      msg.server_id = dgl::RandomEngine::ThreadLocal()->RandInt(lower, upprt);
+      msg.data = pickle_data;
+      NDArray tensor = dgl::aten::VecToIdArray<dgl_id_t>(fut->remote_ids[i]);
+      msg.tensors.push_back(tensor);
+      SendRPCMessage(msg, msg.server_id);
+      msg_count++;
+    }
+  }
+  fut->msg_count = msg_count;
+  *rv = fut;
+});
+
+DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
+.set_body([] (DGLArgs args, DGLRetValue* rv) {
+  List<Value> v_list = args[0];
+  auto* t = dmlc::ThreadLocalStore<RPCContext>::Get();
+  std::vector<dgl::rpc::Future*> future_list;
+  for (Value val : v_list) {
+    void* future = val->data;
+    future_list.push_back(reinterpret_cast<dgl::rpc::Future*>(future));
+  }
+  int future_count = future_list.size();
+  std::unordered_map<int, NDArray> tensor_map;
+  // Create a set of empty NDArray
+  for (int i = 0; i < future_count; ++i) {
+    auto future = future_list[i];
+    future->local_data_shape[0] = future->id_size;
+    NDArray tensor = NDArray::Empty(future->local_data_shape,
+                                    future->dtype,
+                                    DLContext{kDLCPU, 0});
+    tensor_map[future->msg_seq] = tensor;
+  }
+  // Copy local data.
+  // We copy local data concurrently for all futures.
+#pragma omp parallel for
+  for (int n = 0; n < future_count; ++n) {
+    auto future = future_list[n];
+    int row_size = future->row_size;
+    char* return_data = static_cast<char*>(tensor_map[future->msg_seq]->data);
+    for (int64_t i = 0; i < future->local_ids.size(); ++i) {
+      CHECK_GE(future->id_size*row_size, future->local_ids_orginal[i]*row_size+row_size);
+      CHECK_GE(future->data_size, future->local_ids[i]*row_size+row_size);
+      CHECK_GE(future->local_ids[i], 0);
+      memcpy(return_data + future->local_ids_orginal[i] * row_size,
+             future->local_data_char + future->local_ids[i] * row_size,
+             row_size);
+    }
+  }
+  // Recv remote messages
+  int total_msg_count = 0;
+  std::vector<RPCMessage*> rpc_msg_list;
+  std::unordered_map<int, dgl::rpc::Future*> fut_set;
+  for (int i = 0; i < future_count; ++i) {
+    total_msg_count += future_list[i]->msg_count;
+    int msg_seq = future_list[i]->msg_seq;
+    fut_set[msg_seq] = future_list[i];
+    auto it = t->msg_buffer.find(msg_seq);
+    if (it != t->msg_buffer.end()) {
+      for (int j = 0; j < it->second.size(); ++j) {
+        rpc_msg_list.push_back(it->second[j]);
+      }
+      t->msg_buffer.erase(it);
+    }
+  }
+  while (rpc_msg_list.size() < total_msg_count) {
+    RPCMessage* msg = new RPCMessage();
+    // Note that, here is not recv data from network. It just read data
+    // from message queue. The socket data has already be received by
+    // backend threads.
+    int timeout = 0;
+    RecvRPCMessage(msg, timeout);
+    if (fut_set.find(msg->msg_seq) != fut_set.end()) {
+      rpc_msg_list.push_back(msg);
+    } else {
+      t->msg_buffer[msg->msg_seq].push_back(msg);
+    }
+  }
+  CHECK_EQ(rpc_msg_list.size(), total_msg_count);
+  // copy remote data
+  // We copy local data concurrently for all futures.
+#pragma omp parallel for
+  for (int i = 0; i < total_msg_count; ++i) {
+    RPCMessage* msg = rpc_msg_list[i];
+    auto future = fut_set[msg->msg_seq];
+    int row_size = future->row_size;
+    int part_id = msg->server_id / future->group_count;
+    char* data_char = static_cast<char*>(msg->tensors[0]->data);
+    dgl_id_t id_size = future->remote_ids[part_id].size();
+    char* return_data = static_cast<char*>(tensor_map[future->msg_seq]->data);
+    for (size_t n = 0; n < id_size; ++n) {
+      memcpy(return_data + future->remote_ids_original[part_id][n] * row_size,
+             data_char + n * row_size,
+             row_size);
+    }
+    delete msg;
+  }
+  // Clear future list
+  for (int i = 0; i < future_list.size(); ++i) {
+    delete future_list[i];
+  }
+  future_list.clear();
+  // return tensor list
+  List<Value> ret_tensor_list;
+  for (auto it = tensor_map.begin(); it != tensor_map.end(); ++it) {
+    ret_tensor_list.push_back(Value(MakeValue(it->second)));
+  }
+  *rv = ret_tensor_list;
+});
+
 }  // namespace rpc
 }  // namespace dgl

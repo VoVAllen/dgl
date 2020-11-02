@@ -927,11 +927,8 @@ def client_barrier():
     """Barrier all client processes"""
     req = ClientBarrierRequest()
     send_request(0, req)
-    while True:
-        res = recv_response()
-        if res.service_id == CLIENT_BARRIER:
-            assert res.msg == 'barrier'
-            break
+    res = recv_response()
+    assert res.msg == 'barrier'
 
 def finalize_server():
     """Finalize resources of current server

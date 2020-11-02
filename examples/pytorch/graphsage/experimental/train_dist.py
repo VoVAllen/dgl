@@ -49,37 +49,6 @@ def wait_subtensor(g, future, device):
     batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels
 
-def forward_backward_update(num_seeds, 
-                            num_inputs, 
-                            batch_inputs, 
-                            batch_labels, 
-                            blocks, 
-                            model, 
-                            loss_fcn, 
-                            optimizer,
-                            device):
-    """
-    Perform forward + backward (allreduce) + update
-    """
-    batch_labels = batch_labels.long()
-    num_seeds += len(blocks[-1].dstdata[dgl.NID])
-    num_inputs += len(blocks[0].srcdata[dgl.NID])
-    blocks = [block.to(device) for block in blocks]
-    batch_labels = batch_labels.to(device)
-    # Compute loss and prediction
-    start = time.time()
-    batch_pred = model(blocks, batch_inputs)
-    loss = loss_fcn(batch_pred, batch_labels)
-    forward_end = time.time()
-    optimizer.zero_grad()
-    loss.backward()
-    compute_end = time.time()
-    forward_time = forward_end - start
-    backward_time = compute_end - forward_end
-    optimizer.step()
-    update_time = time.time() - compute_end
-    return forward_time, backward_time, update_time, batch_pred, loss
-
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
         self.g = g

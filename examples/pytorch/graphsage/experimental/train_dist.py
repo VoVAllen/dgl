@@ -39,11 +39,10 @@ def prefetch_subtensor(g, seeds, input_nodes):
     labels_future = g.ndata['labels'].prefetch(seeds)
     return [inputs_future, labels_future]
 
-def wait_subtensor(g, future_queue, device):
+def wait_subtensor(g, future, device):
     """
     Wait prefecthed features and labels
     """
-    future = future_queue.get()
     batch_inputs = (g.ndata['features'].wait(future[0]))[0]
     batch_labels = (g.ndata['labels'].wait(future[1]))[0]
     batch_inputs = batch_inputs.to(device)
@@ -244,8 +243,6 @@ def run(args, device, data):
     profiler = Profiler()
     profiler.start()
     epoch = 0
-    total_prefetch = 0
-    
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -256,47 +253,43 @@ def run(args, device, data):
         update_time = 0
         num_seeds = 0
         num_inputs = 0
-        future_queue = queue.Queue()
-        block_queue = queue.Queue()
         start = time.time()
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         step_time = []
         for step, blocks in enumerate(dataloader):
+            tic_step = time.time()
+            sample_time += tic_step - start
+
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
+            start = time.time()
             input_nodes = blocks[0].srcdata[dgl.NID]
             seeds = blocks[-1].dstdata[dgl.NID]
-            if args.pre_fetch:
-                fut = prefetch_subtensor(g, seeds, input_nodes)
-                future_queue.put(fut)
-                block_queue.put(blocks)
-                # input and labels are two future objects
-                total_prefetch += 1
-                # send 5 requests at each time
-                if total_prefetch % 5 != 0: 
-                    continue
-                # Wait 1 future of inputs and labels
-                batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
-                blocks = block_queue.get()
-            else:
-                batch_inputs, batch_labels = load_subtensor(g, seeds, input_nodes, device)
+            fut = prefetch_subtensor(g, seeds, input_nodes)
+            batch_inputs, batch_labels = wait_subtensor(g, fut, device)
+            batch_labels = batch_labels.long()
+            copy_time += time.time() - start
 
-            f_time, b_time, up_time, batch_pred, loss = forward_backward_update(num_seeds, 
-                                                                                num_inputs, 
-                                                                                batch_inputs, 
-                                                                                batch_labels, 
-                                                                                blocks, 
-                                                                                model,
-                                                                                loss_fcn,
-                                                                                optimizer,
-                                                                                device)
-            forward_time += f_time
-            backward_time += b_time
-            update_time += up_time
+            num_seeds += len(blocks[-1].dstdata[dgl.NID])
+            num_inputs += len(blocks[0].srcdata[dgl.NID])
+            blocks = [block.to(device) for block in blocks]
+            batch_labels = batch_labels.to(device)
+            # Compute loss and prediction
+            start = time.time()
+            batch_pred = model(blocks, batch_inputs)
+            loss = loss_fcn(batch_pred, batch_labels)
+            forward_end = time.time()
+            optimizer.zero_grad()
+            loss.backward()
+            compute_end = time.time()
+            forward_time += forward_end - start
+            backward_time += compute_end - forward_end
 
-            step_t = 1.0
-            #step_t = time.time() - tic_step
+            optimizer.step()
+            update_time += time.time() - compute_end
+
+            step_t = time.time() - tic_step
             step_time.append(step_t)
             iter_tput.append(num_seeds / (step_t))
             if step % args.log_every == 0:
@@ -305,23 +298,6 @@ def run(args, device, data):
                 print('Part {} | Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MiB | time {:.3f} s'.format(
                     g.rank(), epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc, np.sum(step_time[-args.log_every:])))
             start = time.time()
-
-        while future_queue.empty() == False:
-            batch_inputs, batch_labels = wait_subtensor(g, future_queue, device)
-            blocks = block_queue.get()
-
-            f_time, b_time, up_time, batch_pred, loss = forward_backward_update(num_seeds,
-                                                                                num_inputs,
-                                                                                batch_inputs,
-                                                                                batch_labels,
-                                                                                blocks,
-                                                                                model,
-                                                                                loss_fcn,
-                                                                                optimizer,
-                                                                                device)
-            forward_time += f_time
-            backward_time += b_time
-            update_time += up_time
 
         toc = time.time()
         print('Part {}, Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
@@ -395,7 +371,6 @@ if __name__ == '__main__':
         help="Number of sampling processes. Use 0 for no extra process.")
     parser.add_argument('--local_rank', type=int, help='get rank of the process')
     parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
-    parser.add_argument('--pre_fetch', action='store_true', help='pre_fetch data')
     args = parser.parse_args()
     assert args.num_workers == int(os.environ.get('DGL_NUM_SAMPLER')), \
     'The num_workers should be the same value with num_samplers.'

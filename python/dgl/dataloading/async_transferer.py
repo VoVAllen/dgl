@@ -130,8 +130,8 @@ class Prefetcher:
         """
         res = []
         try:
-            for i in range(num):
-                res.append(next(self.it))
+            for _ in range(num):
+                res.append(next(self.data_it))
         except StopIteration:
             pass
         return res
@@ -139,8 +139,8 @@ class Prefetcher:
     def __iter__(self):
         '''When we create an iterator, we should start to issue requests to prefetch data.
         '''
-        self.it = iter(self.dataloader)
-        for i in range(self.num_prefetch):
+        self.data_it = iter(self.dataloader)
+        for _ in range(self.num_prefetch):
             bundle = self._bundle_prefetch(self.load_data.bundle_size)
             if len(bundle) == 0:
                 break
@@ -160,17 +160,17 @@ class Prefetcher:
 
         if len(self.buf) == 0:
             raise StopIteration()
-        else:
-            res, future = self.buf.pop(0)
-            # Prefetch a new bundle.
-            bundle = self._bundle_prefetch(self.load_data.bundle_size)
-            if len(bundle) > 0:
-                # Issue requests.
-                next_res, next_future = self.load_data(bundle)
-                self.buf.append((next_res, next_future))
-            data = future()
-            self.ready_data = [(r, d) for r, d in zip(res, data)]
-            return self.ready_data.pop(0)
+
+        res, future = self.buf.pop(0)
+        # Prefetch a new bundle.
+        bundle = self._bundle_prefetch(self.load_data.bundle_size)
+        if len(bundle) > 0:
+            # Issue requests.
+            next_res, next_future = self.load_data(bundle)
+            self.buf.append((next_res, next_future))
+        data = future()
+        self.ready_data = [(r, d) for r, d in zip(res, data)]
+        return self.ready_data.pop(0)
 
 
 _init_api("dgl.dataloading.async_transferer")

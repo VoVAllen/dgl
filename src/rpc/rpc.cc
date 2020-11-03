@@ -5,18 +5,20 @@
  */
 #include "./rpc.h"
 
-#include <csignal>
 #if defined(__linux__)
 #include <unistd.h>
 #endif
-#include <chrono>
-#include <ctime>
 
 #include <dgl/runtime/container.h>
 #include <dgl/packed_func_ext.h>
 #include <dgl/array.h>
 #include <dgl/random.h>
 #include <dgl/zerocopy_serializer.h>
+
+#include <chrono>
+#include <ctime>
+#include <csignal>
+
 #include "../c_api_common.h"
 
 using dgl::network::StringPrintf;
@@ -375,8 +377,8 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCGetGlobalIDFromLocalPartition")
 
 class pull_stats {
   double copy_time[3];
-  long remote_bytes;
-  long local_bytes;
+  int64_t remote_bytes;
+  int64_t local_bytes;
   std::chrono::time_point<std::chrono::system_clock> start_time;
 public:
   enum {
@@ -398,11 +400,11 @@ public:
     }
   }
 
-  void add_local_copy(long bytes) {
+  void add_local_copy(int64_t bytes) {
     local_bytes += bytes;
   }
 
-  void add_remote_copy(long bytes) {
+  void add_remote_copy(int64_t bytes) {
     remote_bytes += bytes;
   }
 
@@ -533,7 +535,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCFastPull")
       for (next = n + 1; next < id_size
            // If the remote Ids are contiguous.
            && remote_ids_original[part_id][next] - 1 == remote_ids_original[part_id][next - 1];
-           next++);
+           next++) {}
       memcpy(return_data + remote_ids_original[part_id][n] * row_size,
              data_char + n * row_size,
              row_size * (next - n));

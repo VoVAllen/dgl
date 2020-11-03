@@ -993,7 +993,7 @@ class Future(ObjectBase):
     Parameters
     ----------
     future_handler
-        A C handler of the Future class. 
+        A C handler of the Future class.
         This handler is returned by the api _CAPI_DGLRPCAsyncPull().
     """
     def __init__(self, future_handler):
@@ -1005,15 +1005,12 @@ class Future(ObjectBase):
 
     def name(self):
         """Get data name of this future object"""
-        pass
 
     def id_tensor(self):
         """Get ID tensot of this future object"""
-        pass
 
     def msg_seq(self):
         """Get message sequence of this future object"""
-        pass
 
 def async_pull(name, id_tensor, part_id, service_id,
                machine_count, group_count, machine_id,

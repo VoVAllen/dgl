@@ -1247,9 +1247,9 @@ class KVClient(object):
         """Pull message from KVServer in an asynchronous way.
 
         For many cases, users may want asynchronous pull to speedup the training.
-        Using async_pull, users can issue a set of pull requests to the kvserver, and 
-        then go back to the other work, instead of waiting on the socket. The async_pull 
-        will return a set of Future objects that can be wait on. Once the message coming 
+        Using async_pull, users can issue a set of pull requests to the kvserver, and
+        then go back to the other work, instead of waiting on the socket. The async_pull
+        will return a set of Future objects that can be wait on. Once the message coming
         back from the server, the kv.wait() api will return the real data to users.
 
         Parameters
@@ -1266,8 +1266,7 @@ class KVClient(object):
         """
         assert len(name_list) == len(id_tensor_list)
         future_list = []
-        for i in range(len(name_list)):
-            name = name_list[i]
+        for i, name in enumerate(name_list):
             assert len(name) > 0, 'name cannot be empty.'
             id_tensor = utils.toindex(id_tensor_list[i])
             id_tensor = id_tensor.tousertensor()
@@ -1288,7 +1287,7 @@ class KVClient(object):
         return future_list
 
     def wait(self, future_list):
-        """Wait on a list of future objects for the real data coming back from kvserver. 
+        """Wait on a list of future objects for the real data coming back from kvserver.
         This API will be blocked until all the future objects get their data.
 
         Parameters

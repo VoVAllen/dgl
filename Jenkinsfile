@@ -199,49 +199,6 @@ pipeline {
             }
           }
         }
-        stage("Tensorflow CPU") {
-          agent { 
-            docker {
-              label "linux-c52x-node"
-              image "dgllib/dgl-ci-cpu:conda" 
-              alwaysPull true
-            }
-          }
-          stages {
-            stage("Unit test") {
-              steps {
-                unit_test_linux("tensorflow", "cpu")
-              }
-            }
-          }
-          post {
-            always {
-              cleanWs disableDeferredWipeout: true, deleteDirs: true
-            }
-          }
-        }
-        stage("Tensorflow GPU") {
-          agent { 
-            docker { 
-              label "linux-gpu-node"
-              image "dgllib/dgl-ci-gpu:conda" 
-              args "--runtime nvidia"
-              alwaysPull true
-            }
-          }
-          stages {
-            stage("Unit test") {
-              steps {
-                unit_test_linux("tensorflow", "gpu")
-              }
-            }
-          }
-          post {
-            always {
-              cleanWs disableDeferredWipeout: true, deleteDirs: true
-            }
-          }
-        }
         stage("Torch CPU") {
           agent { 
             docker {
@@ -312,55 +269,6 @@ pipeline {
             stage("Example test") {
               steps {
                 example_test_linux("pytorch", "gpu")
-              }
-            }
-          }
-          post {
-            always {
-              cleanWs disableDeferredWipeout: true, deleteDirs: true
-            }
-          }
-        }
-        stage("MXNet CPU") {
-          agent { 
-            docker {
-              label "linux-c52x-node"
-              image "dgllib/dgl-ci-cpu:conda" 
-              alwaysPull true
-            }
-          }
-          stages {
-            stage("Unit test") {
-              steps {
-                unit_test_linux("mxnet", "cpu")
-              }
-            }
-            //stage("Tutorial test") {
-            //  steps {
-            //    tutorial_test_linux("mxnet")
-            //  }
-            //}
-          }
-          post {
-            always {
-              cleanWs disableDeferredWipeout: true, deleteDirs: true
-            }
-          }
-        }
-        stage("MXNet GPU") {
-          agent {
-            docker {
-              label "linux-gpu-node" 
-              image "dgllib/dgl-ci-gpu:conda"
-              args "--runtime nvidia"
-              alwaysPull true
-            }
-          }
-          stages {
-            stage("Unit test") {
-              steps {
-                sh "nvidia-smi"
-                unit_test_linux("mxnet", "gpu")
               }
             }
           }

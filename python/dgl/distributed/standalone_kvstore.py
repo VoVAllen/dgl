@@ -4,7 +4,6 @@ This kvstore is used when running in the standalone mode
 """
 
 from .. import backend as F
-from .. import ndarray as nd
 from .graph_partition_book import PartitionPolicy, NODE_PART_POLICY, EDGE_PART_POLICY
 
 class KVClient(object):

@@ -1023,19 +1023,19 @@ std::vector<T> &get_vector() {
 }
 
 template<class T>
-class hashtable
-{
+class hashtable {
   std::vector<T> &hmap;
   T mask;
+
  public:
-  hashtable(long n): hmap(get_vector<T>()) {
-    long new_size;
-    for (new_size=1; new_size<3*n; new_size*=2);
-    mask = new_size-1;
-    if (new_size > (long) hmap.size()) {
+  explicit hashtable(int64_t n): hmap(get_vector<T>()) {
+    int64_t new_size;
+    for (new_size = 1; new_size < 3 * n; new_size *= 2) {}
+    mask = new_size - 1;
+    if (new_size > (int64_t) hmap.size()) {
       hmap.resize(new_size, -1);
     } else {
-      for (long i = 0; i < new_size; i++)
+      for (int64_t i = 0; i < new_size; i++)
         hmap[i] = -1;
     }
   }
@@ -1044,8 +1044,8 @@ class hashtable
   }
 
   bool insert(T k) {
-    long j;
-    for (j=(k&mask); hmap[j]!=-1 && hmap[j]!=k; j=((j+1)&mask));
+    int64_t j;
+    for (j = (k&mask); hmap[j] != -1 && hmap[j] != k; j = ((j + 1) & mask)) {}
     if (hmap[j] == -1) {
       hmap[j] = k;
       return true;
@@ -1056,10 +1056,10 @@ class hashtable
 };
 
 template<class T>
-long unique_v2(long n, const T *input, T *output) {
+int64_t unique_v2(int64_t n, const T *input, T *output) {
   hashtable<T> map(n);
-  long nuniq, i;
-  for (nuniq=0, i=0; i<n; i++) {
+  int64_t nuniq, i;
+  for (nuniq = 0, i = 0; i < n; i++) {
     T k = input[i];
     bool exist = map.insert(k);
     if (exist) {
@@ -1076,10 +1076,10 @@ namespace aten {
 DGL_REGISTER_GLOBAL("ndarray._CAPI_DGLArrayUnique")
 .set_body([] (DGLArgs args, DGLRetValue* rv) {
     NDArray array = args[0];
-    long len = array->shape[0];
+    int64_t len = array->shape[0];
     CHECK_EQ(array->dtype.code, kDLInt);
 
-    long new_len;
+    int64_t new_len;
     NDArray output = NDArray::Empty({len}, array->dtype, array->ctx);
     ATEN_ID_TYPE_SWITCH(array->dtype, Type, {
       const Type *in_data = static_cast<Type *>(array->data);

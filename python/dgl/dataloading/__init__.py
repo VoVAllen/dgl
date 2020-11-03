@@ -18,7 +18,7 @@ from .neighbor import *
 from .dataloader import *
 
 from . import negative_sampler
-from .async_transferer import AsyncTransferer
+from .async_transferer import AsyncTransferer, Prefetcher
 
 from .. import backend as F
 

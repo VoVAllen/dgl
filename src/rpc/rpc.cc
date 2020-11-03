@@ -608,6 +608,8 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAsyncPull")
       fut->remote_ids_original[p_id].push_back(i);
     }
   }
+  pull_stat.add_local_copy(fut->local_ids.size() * fut->row_size);
+
   // send remote id
   int msg_count = 0;
   for (int i = 0; i < fut->remote_ids.size(); ++i) {
@@ -624,6 +626,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAsyncPull")
       msg.tensors.push_back(tensor);
       SendRPCMessage(msg, msg.server_id);
       msg_count++;
+      pull_stat.add_remote_copy(fut->remote_ids[i].size() * fut->row_size);
     }
   }
   fut->msg_count = msg_count;
@@ -652,6 +655,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
   }
   // Copy local data.
   // We copy local data concurrently for all futures.
+  pull_stat.start(pull_stats::LOCAL_COPY);
 #pragma omp parallel for
   for (int n = 0; n < future_count; ++n) {
     auto future = future_list[n];
@@ -666,6 +670,8 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
              row_size);
     }
   }
+  pull_stat.end(pull_stats::LOCAL_COPY);
+
   // Recv remote messages
   int total_msg_count = 0;
   std::vector<RPCMessage*> rpc_msg_list;
@@ -688,7 +694,10 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
     // from message queue. The socket data has already be received by
     // backend threads.
     int timeout = 0;
+    pull_stat.start(pull_stats::REMOTE_NET_RECV);
     RecvRPCMessage(msg, timeout);
+    pull_stat.end(pull_stats::REMOTE_NET_RECV);
+
     if (fut_set.find(msg->msg_seq) != fut_set.end()) {
       rpc_msg_list.push_back(msg);
     } else {
@@ -698,6 +707,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
   CHECK_EQ(rpc_msg_list.size(), total_msg_count);
   // copy remote data
   // We copy local data concurrently for all futures.
+  pull_stat.start(pull_stats::REMOTE_DATACOPY);
 #pragma omp parallel for
   for (int i = 0; i < total_msg_count; ++i) {
     RPCMessage* msg = rpc_msg_list[i];
@@ -714,16 +724,19 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
     }
     delete msg;
   }
+  pull_stat.end(pull_stats::REMOTE_DATACOPY);
+  // return tensor list
+  List<Value> ret_tensor_list;
+  for (int i = 0; i < future_list.size(); ++i) {
+    auto future = future_list[i];
+    ret_tensor_list.push_back(Value(MakeValue(tensor_map[future->msg_seq])));
+  }
   // Clear future list
   for (int i = 0; i < future_list.size(); ++i) {
     delete future_list[i];
   }
   future_list.clear();
-  // return tensor list
-  List<Value> ret_tensor_list;
-  for (auto it = tensor_map.begin(); it != tensor_map.end(); ++it) {
-    ret_tensor_list.push_back(Value(MakeValue(it->second)));
-  }
+
   *rv = ret_tensor_list;
 });
 

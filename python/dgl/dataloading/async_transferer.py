@@ -81,4 +81,77 @@ class AsyncTransferer(object):
         return Transfer(transfer_id, self._handle)
 
 
+class Prefetcher:
+    '''This is a prefetcher defined on top of a data loader.
+
+    The way of loading data is defined by users. The user-defined data loading
+    has to be done asynchronously.
+
+    Parameters
+    ----------
+    dataloader : iterator
+        It defines how to sample subgraphs.
+    load_data : a callable.
+        It defines the logic of loading data for subgraphs. Each time it consumes a bundle of
+        subgraphs. It has a field `bundle_size` that defines the number of subgraphs consumed
+        by the data loading function. This issues data loading requests and returns `futures`
+        for the loaded data.
+    num_prefetch : int
+        The number of prefetch.
+    '''
+    def __init__(self, dataloader, load_data, num_prefetch):
+        self.dataloader = dataloader
+        self.load_data = load_data
+        self.num_prefetch = num_prefetch
+        self.buf = []
+        self.ready_data = []
+
+    def _bundle_prefetch(self, num):
+        """prefetch a pre-defined number of subgraphs.
+        """
+        res = []
+        try:
+            for i in range(num):
+                res.append(next(self.it))
+        except StopIteration:
+            pass
+        return res
+
+    def __iter__(self):
+        '''When we create an iterator, we should start to issue requests to prefetch data.
+        '''
+        self.it = iter(self.dataloader)
+        for i in range(self.num_prefetch):
+            bundle = self._bundle_prefetch(self.load_data.bundle_size)
+            if len(bundle) == 0:
+                break
+            # Issue data loading request.
+            res, future = self.load_data(bundle)
+            self.buf.append((res, future))
+        return self
+
+    def __next__(self):
+        '''Returning data.
+
+        We have issued multiple requests. We need to wait for one of the requests to be complete.
+        Once a request is complete, we will issue another request.
+        '''
+        if len(self.ready_data) > 0:
+            return self.ready_data.pop(0)
+
+        if len(self.buf) == 0:
+            raise StopIteration()
+        else:
+            res, future = self.buf.pop(0)
+            # Prefetch a new bundle.
+            bundle = self._bundle_prefetch(self.load_data.bundle_size)
+            if len(bundle) > 0:
+                # Issue requests.
+                next_res, next_future = self.load_data(bundle)
+                self.buf.append((next_res, next_future))
+            data = future()
+            self.ready_data = [(r, d) for r, d in zip(res, data)]
+            return self.ready_data.pop(0)
+
+
 _init_api("dgl.dataloading.async_transferer")

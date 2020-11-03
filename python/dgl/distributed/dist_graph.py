@@ -695,6 +695,9 @@ class DistGraph:
         '''
         self._client.barrier()
 
+    def wait(self, future_list):
+        return self._client.wait(future_list)
+
     def _get_all_ndata_names(self):
         ''' Get the names of all node data.
         '''

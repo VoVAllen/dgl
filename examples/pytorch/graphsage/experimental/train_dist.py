@@ -45,14 +45,11 @@ def wait_subtensor(g, future, device):
     """
     batch_inputs = (g.ndata['features'].wait(future[0]))[0]
     batch_labels = (g.ndata['labels'].wait(future[1]))[0]
-    batch_inputs = batch_inputs.to(device)
-    batch_labels = batch_labels.to(device)
     return batch_inputs, batch_labels
 
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
         self.g = g
-        self.pb = g.get_partition_book()
         self.fanouts = fanouts
         self.sample_neighbors = sample_neighbors
         self.device = device
@@ -66,17 +63,9 @@ class NeighborSampler(object):
             # Then we compact the frontier into a bipartite graph for message passing.
             block = dgl.to_block(frontier, seeds)
 
-            src_nids = block.srcdata[dgl.NID]
-            dst_nids = block.dstdata[dgl.NID]
-            src_pids = self.pb.nid2partid(src_nids)
-            dst_pids = self.pb.nid2partid(dst_nids)
-            block1, part_occurs = dgl.reorder_nodes(block, [src_pids, dst_pids])
-            block1.srcdata[dgl.NID] = src_nids[block1.srcdata[dgl.NID]]
-            block1.dstdata[dgl.NID] = dst_nids[block1.dstdata[dgl.NID]]
-
             # Obtain the seed nodes for next layer.
-            seeds = block1.srcdata[dgl.NID]
-            blocks.insert(0, block1)
+            seeds = block.srcdata[dgl.NID]
+            blocks.insert(0, block)
 
         return blocks
 
@@ -177,6 +166,34 @@ def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid])
 
+class KVStoreAsyncLoader:
+    def __init__(self, g, device, bundle_size):
+        self.g = g
+        self.device = device
+        self.wait_time = 0
+        self.size = bundle_size
+
+    @property
+    def bundle_size(self):
+        return self.size
+
+    def __call__(self, blocks_list):
+        inputs_future_list = []
+        labels_future_list = []
+        for blocks in blocks_list:
+            input_nodes = blocks[0].srcdata[dgl.NID]
+            seeds = blocks[-1].dstdata[dgl.NID]
+            inputs_future_list.append(self.g.ndata['features'].prefetch(input_nodes))
+            labels_future_list.append(self.g.ndata['labels'].prefetch(seeds))
+
+        def wait_futures():
+            start = time.time()
+            inputs_list = self.g.wait(inputs_future_list)
+            labels_list = self.g.wait(labels_future_list)
+            self.wait_time += time.time() - start
+            return [(inputs, labels) for inputs, labels in zip(inputs_list, labels_list)]
+        return blocks_list, wait_futures
+
 def run(args, device, data):
     # Unpack data
     train_nid, val_nid, test_nid, in_feats, n_classes, g = data
@@ -191,6 +208,9 @@ def run(args, device, data):
         collate_fn=sampler.sample_blocks,
         shuffle=True,
         drop_last=False)
+
+    async_loader = KVStoreAsyncLoader(g, device, 5)
+    dataloader = dgl.dataloading.Prefetcher(dataloader, async_loader, 3)
 
     # Define model and optimizer
     model = DistSAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
@@ -226,24 +246,22 @@ def run(args, device, data):
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         step_time = []
-        for step, blocks in enumerate(dataloader):
+        for step, (blocks, tensors) in enumerate(dataloader):
             tic_step = time.time()
             sample_time += tic_step - start
 
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
             start = time.time()
-            input_nodes = blocks[0].srcdata[dgl.NID]
-            seeds = blocks[-1].dstdata[dgl.NID]
-            fut = prefetch_subtensor(g, seeds, input_nodes)
-            batch_inputs, batch_labels = wait_subtensor(g, fut, device)
+            batch_inputs, batch_labels = tensors
+            batch_inputs = batch_inputs.to(device)
+            batch_labels = batch_labels.to(device)
             batch_labels = batch_labels.long()
+            blocks = [block.to(device) for block in blocks]
             copy_time += time.time() - start
 
             num_seeds += len(blocks[-1].dstdata[dgl.NID])
             num_inputs += len(blocks[0].srcdata[dgl.NID])
-            blocks = [block.to(device) for block in blocks]
-            batch_labels = batch_labels.to(device)
             # Compute loss and prediction
             start = time.time()
             batch_pred = model(blocks, batch_inputs)
@@ -268,6 +286,7 @@ def run(args, device, data):
                     g.rank(), epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc, np.sum(step_time[-args.log_every:])))
             start = time.time()
 
+        print('wait for kvstore:', async_loader.wait_time)
         toc = time.time()
         print('Part {}, Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
             g.rank(), toc - tic, sample_time, copy_time, forward_time, backward_time, update_time, num_seeds, num_inputs))
@@ -341,8 +360,6 @@ if __name__ == '__main__':
     parser.add_argument('--local_rank', type=int, help='get rank of the process')
     parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
     args = parser.parse_args()
-    assert args.num_workers == int(os.environ.get('DGL_NUM_SAMPLER')), \
-    'The num_workers should be the same value with num_samplers.'
 
     print(args)
     main(args)

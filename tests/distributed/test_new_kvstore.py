@@ -284,6 +284,11 @@ def start_client(num_clients, num_servers):
     res = kvclient.wait([fut_list[0], fut_list[1]])
     assert_array_equal(F.asnumpy(res[0]), F.asnumpy(data_tensor))
     assert_array_equal(F.asnumpy(res[1]), F.asnumpy(data_tensor))
+    # Set output tensor for async_pull
+    fut_list = kvclient.async_pull(name_list=['data_0'], id_tensor_list=[id_tensor])
+    new_data_tensor = data_tensor.clone()
+    kvclient.wait(fut_list, [new_data_tensor])
+    assert_array_equal(F.asnumpy(new_data_tensor), F.asnumpy(data_tensor))
     # Test async pull again
     fut_list = kvclient.async_pull(name_list=['data_0'], id_tensor_list=[id_tensor])
     fut_list += kvclient.async_pull(name_list=['data_1'], id_tensor_list=[id_tensor])

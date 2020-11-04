@@ -31,22 +31,6 @@ def load_subtensor(g, seeds, input_nodes, device):
     batch_labels = g.ndata['labels'][seeds].to(device)
     return batch_inputs, batch_labels
 
-def prefetch_subtensor(g, seeds, input_nodes):
-    """
-    Prefecth features and labels of a set of nodes
-    """
-    inputs_future = g.ndata['features'].prefetch(input_nodes)
-    labels_future = g.ndata['labels'].prefetch(seeds)
-    return [inputs_future, labels_future]
-
-def wait_subtensor(g, future, device):
-    """
-    Wait prefecthed features and labels
-    """
-    batch_inputs = (g.ndata['features'].wait(future[0]))[0]
-    batch_labels = (g.ndata['labels'].wait(future[1]))[0]
-    return batch_inputs, batch_labels
-
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
         self.g = g

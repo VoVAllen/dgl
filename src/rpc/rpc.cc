@@ -638,6 +638,7 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPI_DGLRPCAsyncPull")
 DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
 .set_body([] (DGLArgs args, DGLRetValue* rv) {
   List<Value> v_list = args[0];
+  bool has_out_tensor = args[1];
   auto* t = dmlc::ThreadLocalStore<RPCContext>::Get();
   std::vector<dgl::rpc::Future*> future_list;
   for (Value val : v_list) {
@@ -646,14 +647,26 @@ DGL_REGISTER_GLOBAL("distributed.rpc._CAPIRPCAsyncPullWait")
   }
   int future_count = future_list.size();
   std::unordered_map<int, NDArray> tensor_map;
-  // Create a set of empty NDArray
-  for (int i = 0; i < future_count; ++i) {
-    auto future = future_list[i];
-    future->local_data_shape[0] = future->id_size;
-    NDArray tensor = NDArray::Empty(future->local_data_shape,
-                                    future->dtype,
-                                    DLContext{kDLCPU, 0});
-    tensor_map[future->msg_seq] = tensor;
+  if (has_out_tensor) {
+    List<Value> a_list = args[2];
+    std::vector<NDArray> array_list;
+    for (Value val : a_list) {
+      NDArray array = val->data;
+      array_list.push_back(array);
+    }
+    for (int i = 0; i < future_count; ++i) {
+      auto future = future_list[i];
+      tensor_map[future->msg_seq] = array_list[i];
+    }
+  } else {
+    for (int i = 0; i < future_count; ++i) {
+      auto future = future_list[i];
+      future->local_data_shape[0] = future->id_size;
+      NDArray tensor = NDArray::Empty(future->local_data_shape,
+                                      future->dtype,
+                                      DLContext{kDLCPU, 0});
+      tensor_map[future->msg_seq] = tensor;
+    }
   }
   // Copy local data.
   // We copy local data concurrently for all futures.

@@ -1286,7 +1286,7 @@ class KVClient(object):
 
         return future_list
 
-    def wait(self, future_list):
+    def wait(self, future_list, out_tensor_list=None):
         """Wait on a list of future objects for the real data coming back from kvserver.
         This API will be blocked until all the future objects get their data.
 
@@ -1294,6 +1294,8 @@ class KVClient(object):
         ----------
         future_list : list of Future
             A list of Future objects that can be waited on.
+        out_tensor_list : list of tensors
+            A list of tensor that saves pulled data.
 
         Returns
         -------
@@ -1301,7 +1303,9 @@ class KVClient(object):
             A list of tensor with the same order of future_list
         """
         assert len(future_list) > 0, 'future_list cannot be empty.'
-        tensor_list = rpc.wait(future_list)
+        if out_tensor_list is not None:
+            assert len(future_list) == len(out_tensor_list)
+        tensor_list = rpc.wait(future_list, out_tensor_list)
         assert len(tensor_list) == len(future_list)
         return tensor_list
 

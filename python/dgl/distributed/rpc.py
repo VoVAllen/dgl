@@ -964,6 +964,8 @@ def fast_pull(name, id_tensor, part_id, service_id,
         local data tensor
     policy : PartitionPolicy
         store the partition information
+    out_tensor : tensor
+        a tensor that saves pulled data
     """
     msg_seq = incr_msg_seq()
     pickle_data = bytearray(pickle.dumps(([0], [name])))
@@ -996,12 +998,25 @@ class Future(ObjectBase):
         A C handler of the Future class.
         This handler is returned by the api _CAPI_DGLRPCAsyncPull().
     """
-    def __init__(self, future_handler):
-        self._c_handler = future_handler
+    def __init__(self, future_handler, shape, dtype):
+        self._handler = future_handler
+        self._shape = shape
+        self._dtype = dtype
 
+    @property
+    def shape(self):
+        """Get data shape"""
+        return self._shape
+
+    @property
+    def dtype(self):
+        """Get data dtype"""
+        return self._dtype
+
+    @property
     def handler(self):
         """Get C handler"""
-        return self._c_handler
+        return self._handler
 
     def name(self):
         """Get data name of this future object"""
@@ -1059,27 +1074,42 @@ def async_pull(name, id_tensor, part_id, service_id,
                                            F.zerocopy_to_dgl_ndarray(part_id),
                                            F.zerocopy_to_dgl_ndarray(g2l_id),
                                            F.zerocopy_to_dgl_ndarray(local_data))
-    return Future(future_handler)
+    shape = list(local_data.shape)
+    shape[0] = F.shape(id_tensor)[0]
+    return Future(future_handler, shape, F.dtype(local_data))
 
-def wait(future_list):
+def wait(future_list, out_tensor_list):
     """wait() api used by kvclient.
 
     Parameters
     ----------
     future_list : list of Future
         A list of Future objects that can be waited on.
+    out_tensor_list : list of tensor
+        A list of tensor that save pulled data.
 
     Returns
     -------
     A list of tensor
     """
-    res_tensor = []
+    tensor_list = []
     ptr_list = []
+    # Get future pointer
     for fut in future_list:
-        ptr_list.append(fut.handler())
-    tensor_list = _CAPIRPCAsyncPullWait(ptr_list)
-    for tensor in tensor_list:
-        res_tensor.append(F.zerocopy_from_dgl_ndarray(tensor))
+        ptr_list.append(fut.handler)
+    # Get output tensor
+    if out_tensor_list is not None:
+        for i, _ in enumerate(future_list):
+            assert list(out_tensor_list[i].shape) == future_list[i].shape
+            assert F.dtype(out_tensor_list[i]) == future_list[i].dtype
+        for out in out_tensor_list:
+            tensor_list.append(F.zerocopy_to_dgl_ndarray(out))
+        res = _CAPIRPCAsyncPullWait(ptr_list, True, tensor_list)
+    else:
+        res = _CAPIRPCAsyncPullWait(ptr_list, False)
+    res_tensor = []
+    for i, _ in enumerate(res):
+        res_tensor.append(F.zerocopy_from_dgl_ndarray(res[i]))
     return res_tensor
 
 def register_ctrl_c():

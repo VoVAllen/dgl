@@ -40,6 +40,7 @@ from .propagate import *
 from .random import *
 from .data.utils import save_graphs, load_graphs
 from .ndarray import unique
+from .cache import Cache
 
 from ._deprecate.graph import DGLGraph as DGLGraphStale
 from ._deprecate.nodeflow import *

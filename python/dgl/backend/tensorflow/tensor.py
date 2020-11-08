@@ -329,6 +329,10 @@ def ones(shape, dtype, ctx):
         t = tf.ones(shape, dtype=dtype)
     return t
 
+def empty(shape, dtype, ctx):
+    with tf.device(ctx):
+        t = tf.empty(shape, dtype=dtype)
+    return t
 
 def uniform(shape, dtype, ctx, low, high):
     with tf.device(ctx):

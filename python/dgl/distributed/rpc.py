@@ -1002,6 +1002,7 @@ class Future(ObjectBase):
         self._handler = future_handler
         self._shape = shape
         self._dtype = dtype
+        self._data = None
 
     @property
     def shape(self):
@@ -1017,6 +1018,14 @@ class Future(ObjectBase):
     def handler(self):
         """Get C handler"""
         return self._handler
+
+    def set_data(self, data):
+        """Store the data referenced by the future.
+        """
+        self._data = data
+
+    def __call__(self):
+        return self._data
 
     def name(self):
         """Get data name of this future object"""

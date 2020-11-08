@@ -311,10 +311,21 @@ def main(args):
     n_classes = len(th.unique(labels[th.logical_not(th.isnan(labels))]))
     print('#labels:', n_classes)
 
+    # Init cache on node data.
+    # This only works in the standalone mode.
+    if args.cache_percent > 0:
+        out_deg = g._g.out_degrees(local_nid)
+        cache_size = int(len(local_nid) * args.cache_percent)
+        deg_thres = th.sort(out_deg, descending=True)[0][cache_size * 2]
+        g.ndata['features'].init_cache(cache_size, local_nid[out_deg >= deg_thres],
+                                       out_deg[out_deg >= deg_thres], device)
+
     # Pack data
     in_feats = g.ndata['features'].shape[1]
     data = train_nid, val_nid, test_nid, in_feats, n_classes, g
     run(args, device, data)
+    if args.cache_percent > 0:
+        g.ndata['features'].print_cache_stats()
     print("parent ends")
 
 if __name__ == '__main__':
@@ -335,6 +346,8 @@ if __name__ == '__main__':
     parser.add_argument('--fan_out', type=str, default='10,25')
     parser.add_argument('--batch_size', type=int, default=1000)
     parser.add_argument('--batch_size_eval', type=int, default=100000)
+    parser.add_argument('--cache_percent', type=float, default=0.0,
+                        help='The percent of node data to be cached.')
     parser.add_argument('--log_every', type=int, default=20)
     parser.add_argument('--eval_every', type=int, default=5)
     parser.add_argument('--lr', type=float, default=0.003)

@@ -1306,6 +1306,8 @@ class KVClient(object):
         if out_tensor_list is not None:
             assert len(future_list) == len(out_tensor_list)
         tensor_list = rpc.wait(future_list, out_tensor_list)
+        for future, tensor in zip(future_list, tensor_list):
+            future.set_data(tensor)
         assert len(tensor_list) == len(future_list)
         return tensor_list
 

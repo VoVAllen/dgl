@@ -888,6 +888,11 @@ def zeros_like(input):
     """
     pass
 
+def empty(shape, dtype, ctx):
+    """Create an empty tensor.
+    """
+    pass
+
 def ones(shape, dtype, ctx):
     """Create a one tensor.
 

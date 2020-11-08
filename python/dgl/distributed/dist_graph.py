@@ -697,7 +697,9 @@ class DistGraph:
     def wait(self, future_list):
         '''Wait for a list of futures.
         '''
-        return self._client.wait(future_list)
+        kv_future_list = [future.get_kv_future() for future in future_list]
+        self._client.wait(kv_future_list)
+        return [future() for future in future_list]
 
     def _get_all_ndata_names(self):
         ''' Get the names of all node data.

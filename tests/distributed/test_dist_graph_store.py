@@ -85,6 +85,21 @@ def check_dist_graph(g, num_clients, num_nodes, num_edges):
     feats = F.squeeze(feats1, 1)
     assert np.all(F.asnumpy(feats == nids))
 
+    # Test reading node data with cache
+    cache_size = g.number_of_nodes() // 10
+    cache_nodes = np.random.choice(g.number_of_nodes(), cache_size * 2, replace=False)
+    g.ndata['features'].init_cache(cache_size, cache_nodes,
+                                   F.ones((len(cache_nodes),), F.int32, F.cpu()), F.cpu())
+    feats1 = g.ndata['features'][nids]
+    feats = F.squeeze(feats1, 1)
+    assert np.all(F.asnumpy(feats == nids))
+    g.ndata['features'].print_cache_stats()
+
+    feats1 = g.ndata['features'].prefetch(nids)
+    feats1 = g.wait([feats1])[0]
+    feats = F.squeeze(feats1, 1)
+    assert np.all(F.asnumpy(feats == nids))
+
     # Test reading edge data
     eids = F.arange(0, int(g.number_of_edges() / 2))
     feats1 = g.edata['features'][eids]

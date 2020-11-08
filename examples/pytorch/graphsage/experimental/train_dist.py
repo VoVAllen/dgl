@@ -231,6 +231,12 @@ def run(args, device, data):
         # blocks.
         step_time = []
         for step, (blocks, tensors) in enumerate(dataloader):
+            if not args.standalone:
+                if step % args.sync_interval != 0:  # only synchronize gradients when step % 5 == 0
+                    model.require_backward_grad_sync = False
+                else:
+                    model.require_backward_grad_sync = True
+
             tic_step = time.time()
             sample_time += tic_step - start
 
@@ -351,6 +357,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_every', type=int, default=20)
     parser.add_argument('--eval_every', type=int, default=5)
     parser.add_argument('--lr', type=float, default=0.003)
+    parser.add_argument('--sync_interval', type=int, default=1, help="Only synchronize when steps % interval == 0")
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--num_workers', type=int, default=4,
         help="Number of sampling processes. Use 0 for no extra process.")

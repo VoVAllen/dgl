@@ -6,7 +6,6 @@ This kvstore is used when running in the standalone mode
 from functools import partial
 
 from .. import backend as F
-from .graph_partition_book import PartitionPolicy, NODE_PART_POLICY, EDGE_PART_POLICY
 
 class KVClient(object):
     ''' The fake KVStore client.
@@ -36,9 +35,11 @@ class KVClient(object):
         '''register pull handler'''
         self._pull_handlers[name] = func
 
-    def add_data(self, name, tensor):
+    def add_data(self, name, tensor, part_policy):
         '''add data to the client'''
         self._data[name] = tensor
+        if part_policy.policy_str not in self._all_possible_part_policy:
+            self._all_possible_part_policy[part_policy.policy_str] = part_policy
 
     def init_data(self, name, shape, dtype, part_policy, init_func):
         '''add new data to the client'''
@@ -89,7 +90,3 @@ class KVClient(object):
 
     def map_shared_data(self, partition_book):
         '''Mapping shared-memory tensor from server to client.'''
-        self._all_possible_part_policy[NODE_PART_POLICY] = PartitionPolicy(NODE_PART_POLICY,
-                                                                           partition_book)
-        self._all_possible_part_policy[EDGE_PART_POLICY] = PartitionPolicy(EDGE_PART_POLICY,
-                                                                           partition_book)

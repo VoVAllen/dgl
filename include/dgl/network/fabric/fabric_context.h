@@ -17,8 +17,10 @@ class FabricContext {
   // domains which maps to a specific local network interface adapter
   UniqueFabricPtr<struct fid_domain> domain;
   // completion queue
-  UniqueFabricPtr<struct fid_cq> txcq;
-  UniqueFabricPtr<struct fid_cq> rxcq;
+  // UniqueFabricPtr<struct fid_cq> txcq;
+  // UniqueFabricPtr<struct fid_cq> rxcq;
+  UniqueFabricPtr<struct fid_cq> cq;
+  // UniqueFabricPtr<struct fid_cq> rxcq;
   // address vector
   UniqueFabricPtr<struct fid_av> av;
   // the endpoint
@@ -58,16 +60,16 @@ class FabricContext {
     check_err(ret, "Couldn't open AV");
 
     // fi_cq_open: open completion queue
-    struct fid_cq *rxcq_, *txcq_;
+    struct fid_cq *cq_;
     cq_attr.format = FI_CQ_FORMAT_TAGGED;
     cq_attr.size = fabric_provider->info->rx_attr->size;
-    ret = fi_cq_open(domain.get(), &cq_attr, &rxcq_, nullptr);
-    rxcq.reset(rxcq_);
+    ret = fi_cq_open(domain.get(), &cq_attr, &cq_, nullptr);
+    cq.reset(cq_);
     check_err(ret, "Couldn't open CQ");
-    cq_attr.size = fabric_provider->info->tx_attr->size;
-    ret = fi_cq_open(domain.get(), &cq_attr, &txcq_, nullptr);
-    txcq.reset(txcq_);
-    check_err(ret, "Couldn't open CQ");
+    // cq_attr.size = fabric_provider->info->tx_attr->size;
+    // ret = fi_cq_open(domain.get(), &cq_attr, &txcq_, nullptr);
+    // txcq.reset(txcq_);
+    // check_err(ret, "Couldn't open CQ");
 
     // fi_endpoint: create transport level communication endpoint(s)
     struct fid_ep *ep_;
@@ -76,9 +78,9 @@ class FabricContext {
     check_err(ret, "Couldn't allocate endpoint");
 
     // fi_ep_bind: bind CQ and AV to the endpoint
-    ret = fi_ep_bind(ep.get(), (fid_t)rxcq.get(), FI_RECV);
+    ret = fi_ep_bind(ep.get(), (fid_t)cq.get(), FI_RECV | FI_TRANSMIT);
     check_err(ret, "Couldn't bind EP-RXCQ");
-    ret = fi_ep_bind(ep.get(), (fid_t)txcq.get(), FI_TRANSMIT);
+    // ret = fi_ep_bind(ep.get(), (fid_t)txcq.get(), FI_TRANSMIT);
     check_err(ret, "Couldn't bind EP-TXCQ");
     ret = fi_ep_bind(ep.get(), (fid_t)av.get(), 0);
     check_err(ret, "Couldn't bind EP-AV");

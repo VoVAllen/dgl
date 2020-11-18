@@ -21,8 +21,6 @@
 namespace dgl {
 namespace network {
 
-void HandleCQError(struct fid_cq *cq);
-
 const int kMaxConcurrentWorkRequest = 4224;  // 128 + 2048 * 2
 
 struct FullFabricAddr {
@@ -102,7 +100,7 @@ class FabricEndpoint {
         break;
       }
     }
-    if (sync) WaitCQ(fabric_ctx->txcq.get());
+    if (sync) WaitCQ(fabric_ctx->cq.get());
 
     // while (true) {
     //   int ret = fi_cq_read(fabric_ctx->cq.get(), &comp, 1);
@@ -129,7 +127,7 @@ class FabricEndpoint {
     // { LOG(INFO) << "issue recv event done" << sync; }
     if (sync) {
       // { LOG(INFO) << "DEBUG SYNC BRANCH"; }
-      WaitCQ(fabric_ctx->rxcq.get());
+      WaitCQ(fabric_ctx->cq.get());
     }
     // while (true) {
     //   int ret = fi_cq_read(fabric_ctx->cq.get(), &comp, 1);
@@ -155,10 +153,10 @@ class FabricEndpoint {
       }
     }
   }
-  static std::shared_ptr<FabricEndpoint> GetEndpoint() {
-    static std::shared_ptr<FabricEndpoint> global_ep(new FabricEndpoint());
-    return global_ep;
-  }
+  // static std::shared_ptr<FabricEndpoint> GetEndpoint() {
+  //   static std::shared_ptr<FabricEndpoint> global_ep(new FabricEndpoint());
+  //   return global_ep;
+  // }
 
   // the name of the peer endpoint
   std::vector<FullFabricAddr> client_ep;

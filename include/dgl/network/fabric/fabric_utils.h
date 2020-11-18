@@ -1,6 +1,7 @@
 #pragma once
 
 #include <arpa/inet.h>
+#include <dgl/network/msg_queue.h>
 #include <dmlc/logging.h>
 #include <inttypes.h>
 #include <netinet/in.h>
@@ -27,6 +28,19 @@
 
 namespace dgl {
 namespace network {
+
+typedef std::unordered_map<int, std::shared_ptr<MessageQueue>> QueueMap;
+
+enum FabricMsgTag : uint64_t {
+  kSizeMsg = 0x0000000000010000,
+  kDataMsg = 0x0000000000020000,
+  kCtrlAddrMsg = 0x0000000000030000,
+  kFiAddrMsg = 0x0000000000040000,
+  kIgnoreMsg = 0x0000000000050000,
+};
+
+static const uint64_t MsgTagMask = 0x00000000FFFF0000;
+static const uint64_t IdMask = 0x000000000000FFFF;
 
 static const int FABRIC_VERSION = FI_VERSION(1, 10);
 
@@ -57,6 +71,19 @@ struct FabricDeleter {
   }
 };
 
+static void HandleCQError(struct fid_cq* cq) {
+  struct fi_cq_err_entry err_entry;
+  int ret = fi_cq_readerr(cq, &err_entry, 1);
+  if (ret == FI_EADDRNOTAVAIL) {
+    LOG(WARNING) << "fi_cq_readerr: FI_EADDRNOTAVAIL";
+  } else if (ret < 0) {
+    LOG(FATAL) << "fi_cq_readerr failed. Return Code: " << ret << ". ERROR: "
+               << fi_cq_strerror(cq, err_entry.prov_errno, err_entry.err_data,
+                                 nullptr, err_entry.err_data_size);
+  } else {
+    check_err(-err_entry.err, "fi_cq_read failed. retrieved error: ");
+  }
+}
 template <typename T>
 using UniqueFabricPtr = std::unique_ptr<T, FabricDeleter>;
 

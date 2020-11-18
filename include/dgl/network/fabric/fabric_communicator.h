@@ -8,7 +8,9 @@
 
 #include <dgl/network/common.h>
 #include <dgl/network/communicator.h>
+#include <dgl/network/fabric/fabric_communicator_context.h>
 #include <dgl/network/fabric/fabric_endpoint.h>
+#include <dgl/network/fabric/fabric_utils.h>
 #include <dgl/network/msg_queue.h>
 #include <dgl/network/socket_communicator.h>
 #include <dgl/network/tcp_socket.h>
@@ -23,21 +25,6 @@
 
 namespace dgl {
 namespace network {
-
-enum FabricMsgTag : uint64_t {
-  kSizeMsg = 0x0000000000010000,
-  kDataMsg = 0x0000000000020000,
-  kCtrlAddrMsg = 0x0000000000030000,
-  kFiAddrMsg = 0x0000000000040000,
-  kIgnoreMsg = 0x0000000000050000,
-};
-
-// static const std::string handshake_msg = "ready";
-// static char handshake_buffer[16] = "ready";
-
-static const uint64_t MsgTagMask = 0x00000000FFFF0000;
-static const uint64_t IdMask = 0x000000000000FFFF;
-// static uint64_t MsgTagMask =std::numeric_limits<uint64_t>::max();
 
 struct FabricAddrInfo {
   int sender_id;
@@ -57,7 +44,7 @@ class FabricSender : public Sender {
    * \param queue_size size of message queue
    */
   explicit FabricSender(int64_t queue_size, std::string net_type)
-      : Sender(queue_size), fep(FabricEndpoint::GetEndpoint()) {
+      : Sender(queue_size), fep(FabricCommunicatorContext::GetEndpoint()) {
     fep->Init(net_type);
     ctrl_ep = std::unique_ptr<FabricEndpoint>(
       FabricEndpoint::CreateCtrlEndpoint(nullptr));
@@ -126,26 +113,6 @@ class FabricSender : public Sender {
 
   std::unordered_map<int /* Sender (virutal) ID */, fi_addr_t> peer_fi_addr,
     ctrl_peer_fi_addr;
-
-  /*!
-   * \brief message queue for each socket connection
-   */
-  std::unordered_map<int /* receiver ID */, std::shared_ptr<MessageQueue>>
-    msg_queue_;
-
-  /*!
-   * \brief Send-loop for each socket in per-thread
-   * \param socket TCPSocket for current connection
-   * \param queue message_queue for current connection
-   *
-   * Note that, the SendLoop will finish its loop-job and exit thread
-   * when the main thread invokes Signal() API on the message queue.
-   */
-  void SendLoop();
-
-  void PollCompletionQueue(struct fi_cq_tagged_entry* cq_entries);
-
-  void HandleCompletionEvent(const struct fi_cq_tagged_entry& cq_entry);
 };
 
 /*!
@@ -160,7 +127,9 @@ class FabricReceiver : public Receiver {
    * \param queue_size size of message queue.
    */
   explicit FabricReceiver(int64_t queue_size, std::string net_type)
-      : Receiver(queue_size), fep(FabricEndpoint::GetEndpoint()) {
+      : Receiver(queue_size),
+        fep(FabricCommunicatorContext::GetEndpoint()),
+        msg_queue_(FabricCommunicatorContext::GetQueueMap()) {
     fep->Init(net_type);
   }
 
@@ -216,21 +185,6 @@ class FabricReceiver : public Receiver {
   }
 
  private:
-  bool PollCompletionQueue(struct fi_cq_tagged_entry* cq_entries);
-
-  bool HandleCompletionEvent(const struct fi_cq_tagged_entry& cq_entry);
-
-  /*!
-   * \brief Recv-loop for each socket in per-thread
-   * \param socket client socket
-   * \param queue message queue
-   *
-   * Note that, the RecvLoop will finish its loop-job and exit thread
-   * when the main thread invokes Signal() API on the message queue.
-   */
-  void RecvLoop();
-
-  std::atomic<bool> should_stop_polling_;
 
   std::unique_ptr<FabricEndpoint> ctrl_ep;
 
@@ -248,16 +202,11 @@ class FabricReceiver : public Receiver {
   std::unordered_map<int /* Sender (virutal) ID */, fi_addr_t> peer_fi_addr,
     ctrl_peer_fi_addr;
 
-  // std::unordered_map<int /* Sender (virutal) ID */, fi_addr_t> fi_to_id;
-
   /*!
    * \brief Message queue for each socket connection
    */
-  std::unordered_map<int /* Sender (virtual) ID */,
-                     std::shared_ptr<MessageQueue>>
-    msg_queue_;
+  std::shared_ptr<QueueMap> msg_queue_;
 
-  std::shared_ptr<std::thread> poll_thread;
 };
 
 }  // namespace network

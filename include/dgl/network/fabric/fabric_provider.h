@@ -19,7 +19,6 @@ class FabricProvider {
     UniqueFabricPtr<struct fi_info> hints(fi_allocinfo());
     hints->ep_attr->type = FI_EP_RDM;  // Reliable Datagram
     hints->caps = FI_TAGGED | FI_MSG;
-    hints->domain_attr->threading = FI_THREAD_COMPLETION;
     hints->tx_attr->msg_order = FI_ORDER_SAS;
     hints->rx_attr->msg_order = FI_ORDER_SAS;
     hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;

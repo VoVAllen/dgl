@@ -277,6 +277,9 @@ def zeros_like(input):
 def ones(shape, dtype, ctx):
     return nd.ones(shape, dtype=dtype, ctx=ctx)
 
+def empty(shape, dtype, ctx):
+    return nd.ones(shape, dtype=dtype, ctx=ctx)
+
 def uniform(shape, dtype, ctx, low, high):
     return nd.random.uniform(low, high, ctx=ctx, dtype=dtype, shape=shape)
 
@@ -355,11 +358,11 @@ def sort_1d(input):
     idx = nd.cast(idx, dtype='int64')
     return val, idx
 
-def arange(start, stop, dtype=np.int64):
+def arange(start, stop, dtype=np.int64, ctx=None):
     if start >= stop:
-        return nd.array([], dtype=dtype)
+        return nd.array([], dtype=dtype, ctx=ctx)
     else:
-        return nd.arange(start, stop, dtype=dtype)
+        return nd.arange(start, stop, dtype=dtype, ctx=ctx)
 
 def rand_shuffle(arr):
     return mx.nd.random.shuffle(arr)

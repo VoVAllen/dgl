@@ -124,6 +124,16 @@ def cast_to_signed(arr):
     """
     return _CAPI_DGLArrayCastToSigned(arr)
 
+def unique(arr):
+    '''Perform unique operation on the input array.
+
+    Parameters
+    ----------
+    arr : NDArray
+        Input array
+    '''
+    return _CAPI_DGLArrayUnique(arr)
+
 def exist_shared_mem_array(name):
     """ Check the existence of shared-memory array.
 

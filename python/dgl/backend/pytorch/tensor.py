@@ -213,6 +213,9 @@ def zeros_like(input):
 def ones(shape, dtype, ctx):
     return th.ones(shape, dtype=dtype, device=ctx)
 
+def empty(shape, dtype, ctx):
+    return th.empty(shape, dtype=dtype, device=ctx)
+
 def uniform(shape, dtype, ctx, low, high):
     return th.empty(shape, dtype=dtype, device=ctx).uniform_(low, high)
 
@@ -286,8 +289,8 @@ def nonzero_1d(input):
 def sort_1d(input):
     return th.sort(input)
 
-def arange(start, stop, dtype=th.int64):
-    return th.arange(start, stop, dtype=dtype)
+def arange(start, stop, dtype=th.int64, ctx=None):
+    return th.arange(start, stop, dtype=dtype, device=ctx)
 
 def rand_shuffle(arr):
     idx = th.randperm(len(arr))

@@ -295,13 +295,14 @@ def run(proc_id, n_gpus, args, devices, dataset, split, queue=None):
 
     # training loop
     print("start training...")
-    forward_time = []
-    backward_time = []
 
     for epoch in range(args.n_epochs):
         model.train()
         embed_layer.train()
 
+        data_copy_time = []
+        forward_time = []
+        backward_time = []
         for i, sample_data in enumerate(loader):
             seeds, blocks = sample_data
             t0 = time.time()
@@ -309,9 +310,10 @@ def run(proc_id, n_gpus, args, devices, dataset, split, queue=None):
                                 blocks[0].srcdata[dgl.NTYPE],
                                 blocks[0].srcdata['type_id'],
                                 node_feats)
+            t1 = time.time()
             logits = model(blocks, feats)
             loss = F.cross_entropy(logits, labels[seeds])
-            t1 = time.time()
+            t2 = time.time()
             optimizer.zero_grad()
             if args.sparse_embedding:
                 emb_optimizer.zero_grad()
@@ -320,17 +322,19 @@ def run(proc_id, n_gpus, args, devices, dataset, split, queue=None):
             optimizer.step()
             if args.sparse_embedding:
                 emb_optimizer.step()
-            t2 = time.time()
+            t3 = time.time()
 
-            forward_time.append(t1 - t0)
-            backward_time.append(t2 - t1)
+            data_copy_time.append(t1 - t0)
+            forward_time.append(t2 - t1)
+            backward_time.append(t3 - t2)
             train_acc = th.sum(logits.argmax(dim=1) == labels[seeds]).item() / len(seeds)
-            if i % 100 and proc_id == 0:
-                print("Train Accuracy: {:.4f} | Train Loss: {:.4f}".
-                    format(train_acc, loss.item()))
-        print("Epoch {:05d}:{:05d} | Train Forward Time(s) {:.4f} | Backward Time(s) {:.4f}".
-            format(epoch, i, forward_time[-1], backward_time[-1]))
+            #if i % 100 and proc_id == 0:
+            #    print("Train Accuracy: {:.4f} | Train Loss: {:.4f}".
+            #        format(train_acc, loss.item()))
+        print("Epoch {:05d} | Data copy time(s) {:.4f} | Train Forward Time(s) {:.4f} | Backward Time(s) {:.4f}".
+            format(epoch, np.sum(data_copy_time), np.sum(forward_time), np.sum(backward_time)))
 
+        """
         if (queue is not None) or (proc_id == 0):
             val_logits, val_seeds = evaluate(model, embed_layer, val_loader, node_feats)
             if queue is not None:
@@ -355,6 +359,7 @@ def run(proc_id, n_gpus, args, devices, dataset, split, queue=None):
                         format(val_acc, val_loss))
         if n_gpus > 1:
             th.distributed.barrier()
+        """
 
     # only process 0 will do the evaluation
     if (queue is not None) or (proc_id == 0):

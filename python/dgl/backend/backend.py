@@ -888,6 +888,11 @@ def zeros_like(input):
     """
     pass
 
+def empty(shape, dtype, ctx):
+    """Create an empty tensor.
+    """
+    pass
+
 def ones(shape, dtype, ctx):
     """Create a one tensor.
 
@@ -1168,7 +1173,7 @@ def sort_1d(input):
     """
     pass
 
-def arange(start, stop, dtype):
+def arange(start, stop, dtype, ctx):
     """Create a 1D range int64 tensor.
 
     Parameters
@@ -1178,7 +1183,9 @@ def arange(start, stop, dtype):
     stop : int
         The range stop.
     dtype: str
-        The dtype of result tensor
+        The dtype of result tensor.
+    ctx : Device context object.
+        Device context.
 
     Returns
     -------

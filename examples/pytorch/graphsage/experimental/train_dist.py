@@ -1,26 +1,28 @@
-import os
-os.environ['DGLBACKEND']='pytorch'
-from multiprocessing import Process
-import argparse, time, math
-import numpy as np
-from functools import wraps
-import tqdm
-
-import dgl
-from dgl import DGLGraph
-from dgl.data import register_data_args, load_data
-from dgl.data.utils import load_graphs
-import dgl.function as fn
-import dgl.nn.pytorch as dglnn
-from dgl.distributed import DistDataLoader
-
-import torch as th
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torch.multiprocessing as mp
-from torch.utils.data import DataLoader
+import math
+import time
+import argparse
 from pyinstrument import Profiler
+from torch.utils.data import DataLoader
+import torch.multiprocessing as mp
+import torch.optim as optim
+import torch.nn.functional as F
+import torch.nn as nn
+import torch as th
+from dgl.distributed import DistDataLoader
+import dgl.nn.pytorch as dglnn
+import dgl.function as fn
+from dgl.data.utils import load_graphs
+from dgl.data import register_data_args, load_data
+from dgl import DGLGraph
+import dgl
+import queue
+import tqdm
+from functools import wraps
+import numpy as np
+from multiprocessing import Process
+import os
+os.environ['DGLBACKEND'] = 'pytorch'
+
 
 def load_subtensor(g, seeds, input_nodes, device):
     """
@@ -29,6 +31,7 @@ def load_subtensor(g, seeds, input_nodes, device):
     batch_inputs = g.ndata['features'][input_nodes].to(device)
     batch_labels = g.ndata['labels'][seeds].to(device)
     return batch_inputs, batch_labels
+
 
 class NeighborSampler(object):
     def __init__(self, g, fanouts, sample_neighbors, device):
@@ -42,20 +45,17 @@ class NeighborSampler(object):
         blocks = []
         for fanout in self.fanouts:
             # For each seed node, sample ``fanout`` neighbors.
-            frontier = self.sample_neighbors(self.g, seeds, fanout, replace=True)
+            frontier = self.sample_neighbors(
+                self.g, seeds, fanout, replace=True)
             # Then we compact the frontier into a bipartite graph for message passing.
             block = dgl.to_block(frontier, seeds)
+
             # Obtain the seed nodes for next layer.
             seeds = block.srcdata[dgl.NID]
-
             blocks.insert(0, block)
 
-        input_nodes = blocks[0].srcdata[dgl.NID]
-        seeds = blocks[-1].dstdata[dgl.NID]
-        batch_inputs, batch_labels = load_subtensor(self.g, seeds, input_nodes, "cpu")
-        blocks[0].srcdata['features'] = batch_inputs
-        blocks[-1].dstdata['labels'] = batch_labels
         return blocks
+
 
 class DistSAGE(nn.Module):
     def __init__(self, in_feats, n_hidden, n_classes, n_layers,
@@ -104,8 +104,10 @@ class DistSAGE(nn.Module):
                 y = dgl.distributed.DistTensor((g.number_of_nodes(), self.n_classes),
                                                th.float32, 'h_last', persistent=True)
 
-            sampler = NeighborSampler(g, [-1], dgl.distributed.sample_neighbors, device)
-            print('|V|={}, eval batch size: {}'.format(g.number_of_nodes(), batch_size))
+            sampler = NeighborSampler(
+                g, [-1], dgl.distributed.sample_neighbors, device)
+            print('|V|={}, eval batch size: {}'.format(
+                g.number_of_nodes(), batch_size))
             # Create PyTorch DataLoader for constructing blocks
             dataloader = DistDataLoader(
                 dataset=nodes,
@@ -131,12 +133,14 @@ class DistSAGE(nn.Module):
             g.barrier()
         return y
 
+
 def compute_acc(pred, labels):
     """
     Compute the accuracy of prediction given the labels.
     """
     labels = labels.long()
     return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
+
 
 def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
     """
@@ -154,6 +158,37 @@ def evaluate(model, g, inputs, labels, val_nid, test_nid, batch_size, device):
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid])
 
+
+class KVStoreAsyncLoader:
+    def __init__(self, g, device, bundle_size):
+        self.g = g
+        self.device = device
+        self.wait_time = 0
+        self.size = bundle_size
+
+    @property
+    def bundle_size(self):
+        return self.size
+
+    def __call__(self, blocks_list):
+        inputs_future_list = []
+        labels_future_list = []
+        for blocks in blocks_list:
+            input_nodes = blocks[0].srcdata[dgl.NID]
+            seeds = blocks[-1].dstdata[dgl.NID]
+            inputs_future_list.append(
+                self.g.ndata['features'].prefetch(input_nodes))
+            labels_future_list.append(self.g.ndata['labels'].prefetch(seeds))
+
+        def wait_futures():
+            start = time.time()
+            inputs_list = self.g.wait(inputs_future_list)
+            labels_list = self.g.wait(labels_future_list)
+            self.wait_time += time.time() - start
+            return [(inputs, labels) for inputs, labels in zip(inputs_list, labels_list)]
+        return blocks_list, wait_futures
+
+
 def run(args, device, data):
     # Unpack data
     train_nid, val_nid, test_nid, in_feats, n_classes, g = data
@@ -169,15 +204,20 @@ def run(args, device, data):
         shuffle=True,
         drop_last=False)
 
+    async_loader = KVStoreAsyncLoader(g, device, 5)
+    dataloader = dgl.dataloading.Prefetcher(dataloader, async_loader, 3)
+
     # Define model and optimizer
-    model = DistSAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
+    model = DistSAGE(in_feats, args.num_hidden, n_classes,
+                     args.num_layers, F.relu, args.dropout)
     model = model.to(device)
     if not args.standalone:
         if args.num_gpus == -1:
             model = th.nn.parallel.DistributedDataParallel(model)
         else:
             dev_id = g.rank() % args.num_gpus
-            model = th.nn.parallel.DistributedDataParallel(model, device_ids=[dev_id], output_device=dev_id)
+            model = th.nn.parallel.DistributedDataParallel(
+                model, device_ids=[dev_id], output_device=dev_id)
     loss_fcn = nn.CrossEntropyLoss()
     loss_fcn = loss_fcn.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -203,20 +243,28 @@ def run(args, device, data):
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         step_time = []
-        for step, blocks in enumerate(dataloader):
+        for step, (blocks, tensors) in enumerate(dataloader):
+            if not args.standalone:
+                if step % args.sync_interval != 0:  # only synchronize gradients when step % 5 == 0
+                    model.require_backward_grad_sync = False
+                else:
+                    model.require_backward_grad_sync = True
+
             tic_step = time.time()
             sample_time += tic_step - start
 
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
-            batch_inputs = blocks[0].srcdata['features']
-            batch_labels = blocks[-1].dstdata['labels']
+            start = time.time()
+            batch_inputs, batch_labels = tensors
+            batch_inputs = batch_inputs.to(device)
+            batch_labels = batch_labels.to(device)
             batch_labels = batch_labels.long()
+            blocks = [block.to(device) for block in blocks]
+            copy_time += time.time() - start
 
             num_seeds += len(blocks[-1].dstdata[dgl.NID])
             num_inputs += len(blocks[0].srcdata[dgl.NID])
-            blocks = [block.to(device) for block in blocks]
-            batch_labels = batch_labels.to(device)
             # Compute loss and prediction
             start = time.time()
             batch_pred = model(blocks, batch_inputs)
@@ -236,16 +284,17 @@ def run(args, device, data):
             iter_tput.append(len(blocks[-1].dstdata[dgl.NID]) / step_t)
             if step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
-                gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
+                gpu_mem_alloc = th.cuda.max_memory_allocated(
+                ) / 1000000 if th.cuda.is_available() else 0
                 print('Part {} | Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MiB | time {:.3f} s'.format(
                     g.rank(), epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc, np.sum(step_time[-args.log_every:])))
             start = time.time()
 
+        print('wait for kvstore:', async_loader.wait_time)
         toc = time.time()
         print('Part {}, Epoch Time(s): {:.4f}, sample+data_copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
             g.rank(), toc - tic, sample_time, forward_time, backward_time, update_time, num_seeds, num_inputs))
         epoch += 1
-
 
         if epoch % args.eval_every == 0 and epoch != 0:
             start = time.time()
@@ -257,17 +306,23 @@ def run(args, device, data):
         profiler.stop()
         print(profiler.output_text(unicode=True, color=True))
 
+
 def main(args):
-    dgl.distributed.initialize(args.ip_config, args.num_servers, num_workers=args.num_workers)
+    dgl.distributed.initialize(
+        args.ip_config, args.num_servers, num_workers=args.num_workers)
     if not args.standalone:
         th.distributed.init_process_group(backend='gloo')
-    g = dgl.distributed.DistGraph(args.graph_name, part_config=args.part_config)
+    g = dgl.distributed.DistGraph(
+        args.graph_name, part_config=args.part_config)
     print('rank:', g.rank())
 
     pb = g.get_partition_book()
-    train_nid = dgl.distributed.node_split(g.ndata['train_mask'], pb, force_even=True)
-    val_nid = dgl.distributed.node_split(g.ndata['val_mask'], pb, force_even=True)
-    test_nid = dgl.distributed.node_split(g.ndata['test_mask'], pb, force_even=True)
+    train_nid = dgl.distributed.node_split(
+        g.ndata['train_mask'], pb, force_even=True)
+    val_nid = dgl.distributed.node_split(
+        g.ndata['val_mask'], pb, force_even=True)
+    test_nid = dgl.distributed.node_split(
+        g.ndata['test_mask'], pb, force_even=True)
     local_nid = pb.partid2nids(pb.partid).detach().numpy()
     print('part {}, train: {} (local: {}), val: {} (local: {}), test: {} (local: {})'.format(
         g.rank(), len(train_nid), len(np.intersect1d(train_nid.numpy(), local_nid)),
@@ -281,23 +336,39 @@ def main(args):
     n_classes = len(th.unique(labels[th.logical_not(th.isnan(labels))]))
     print('#labels:', n_classes)
 
+    # Init cache on node data.
+    # This only works in the standalone mode.
+    if args.cache_percent > 0:
+        out_deg = g._g.out_degrees(local_nid)
+        cache_size = int(len(local_nid) * args.cache_percent)
+        deg_thres = th.sort(out_deg, descending=True)[0][cache_size * 2]
+        g.ndata['features'].init_cache(cache_size, local_nid[out_deg >= deg_thres],
+                                       out_deg[out_deg >= deg_thres], device)
+
     # Pack data
     in_feats = g.ndata['features'].shape[1]
     data = train_nid, val_nid, test_nid, in_feats, n_classes, g
     run(args, device, data)
+    if args.cache_percent > 0:
+        g.ndata['features'].print_cache_stats()
     print("parent ends")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GCN')
     register_data_args(parser)
     parser.add_argument('--graph_name', type=str, help='graph name')
     parser.add_argument('--id', type=int, help='the partition id')
-    parser.add_argument('--ip_config', type=str, help='The file for IP configuration')
-    parser.add_argument('--part_config', type=str, help='The path to the partition config file')
-    parser.add_argument('--num_clients', type=int, help='The number of clients')
-    parser.add_argument('--num_servers', type=int, default=1, help='The number of servers')
+    parser.add_argument('--ip_config', type=str,
+                        help='The file for IP configuration')
+    parser.add_argument('--part_config', type=str,
+                        help='The path to the partition config file')
+    parser.add_argument('--num_clients', type=int,
+                        help='The number of clients')
+    parser.add_argument('--num_servers', type=int,
+                        default=1, help='The number of servers')
     parser.add_argument('--n_classes', type=int, help='the number of classes')
-    parser.add_argument('--num_gpus', type=int, default=-1, 
+    parser.add_argument('--num_gpus', type=int, default=-1,
                         help="the number of GPU device. Use -1 for CPU training")
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--num_hidden', type=int, default=16)
@@ -305,20 +376,23 @@ if __name__ == '__main__':
     parser.add_argument('--fan_out', type=str, default='10,25')
     parser.add_argument('--batch_size', type=int, default=1000)
     parser.add_argument('--batch_size_eval', type=int, default=100000)
+    parser.add_argument('--cache_percent', type=float, default=0.0,
+                        help='The percent of node data to be cached.')
     parser.add_argument('--log_every', type=int, default=20)
     parser.add_argument('--eval_every', type=int, default=5)
     parser.add_argument('--lr', type=float, default=0.003)
+    parser.add_argument('--sync_interval', type=int, default=1,
+                        help="Only synchronize when steps % interval == 0")
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--num_workers', type=int, default=4,
-        help="Number of sampling processes. Use 0 for no extra process.")
-    parser.add_argument('--local_rank', type=int, help='get rank of the process')
-    parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
-    parser.add_argument('--close_profiler', action='store_true', help='Close pyinstrument profiler')
+                        help="Number of sampling processes. Use 0 for no extra process.")
+    parser.add_argument('--local_rank', type=int,
+                        help='get rank of the process')
+    parser.add_argument('--standalone', action='store_true',
+                        help='run in the standalone mode')
+    parser.add_argument('--close_profiler', action='store_true',
+                        help='Close pyinstrument profiler')
     args = parser.parse_args()
-    assert args.num_workers == int(os.environ.get('DGL_NUM_SAMPLER')), \
-    'The num_workers should be the same value with DGL_NUM_SAMPLER.'
-    assert args.num_servers == int(os.environ.get('DGL_NUM_SERVER')), \
-    'The num_servers should be the same value with DGL_NUM_SERVER.'
 
     print(args)
     main(args)

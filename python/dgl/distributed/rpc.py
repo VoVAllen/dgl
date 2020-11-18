@@ -975,6 +975,8 @@ def fast_pull(name, id_tensor, part_id, service_id,
         local data tensor
     policy : PartitionPolicy
         store the partition information
+    out_tensor : tensor
+        a tensor that saves pulled data
     """
     msg_seq = incr_msg_seq()
     pickle_data = bytearray(pickle.dumps(([0], [name])))
@@ -996,6 +998,139 @@ def fast_pull(name, id_tensor, part_id, service_id,
                                       F.zerocopy_to_dgl_ndarray(g2l_id),
                                       F.zerocopy_to_dgl_ndarray(local_data))
     return F.zerocopy_from_dgl_ndarray(res_tensor)
+
+class Future(ObjectBase):
+    """Future is returned by async_pull() API and user can wait on
+    this object for the actual data coming back from kvserver.
+
+    Parameters
+    ----------
+    future_handler
+        A C handler of the Future class.
+        This handler is returned by the api _CAPI_DGLRPCAsyncPull().
+    """
+    def __init__(self, future_handler, shape, dtype):
+        self._handler = future_handler
+        self._shape = shape
+        self._dtype = dtype
+        self._data = None
+
+    @property
+    def shape(self):
+        """Get data shape"""
+        return self._shape
+
+    @property
+    def dtype(self):
+        """Get data dtype"""
+        return self._dtype
+
+    @property
+    def handler(self):
+        """Get C handler"""
+        return self._handler
+
+    def set_data(self, data):
+        """Store the data referenced by the future.
+        """
+        self._data = data
+
+    def __call__(self):
+        return self._data
+
+    def name(self):
+        """Get data name of this future object"""
+
+    def id_tensor(self):
+        """Get ID tensot of this future object"""
+
+    def msg_seq(self):
+        """Get message sequence of this future object"""
+
+def async_pull(name, id_tensor, part_id, service_id,
+               machine_count, group_count, machine_id,
+               client_id, local_data, policy):
+    """async_pull() api used by kvstore.
+
+    Parameters
+    ----------
+    name : str
+        data name
+    id_tensor: tensor
+        data ID
+    part_id : tensor
+        partition ID of id_tensor
+    service_id : int
+        service_id of pull request
+    machine_count : int
+        total number of machine
+    group_count : int
+        total number of server inside one machine
+    machine_id : int
+        current machine ID
+    client_id : int
+        current client ID
+    local data : tensor
+        local data tensor
+    policy : PartitionPolicy
+        store the partition information
+    """
+    msg_seq = incr_msg_seq()
+    pickle_data = bytearray(pickle.dumps(([0], [name])))
+    global_id = _CAPI_DGLRPCGetGlobalIDFromLocalPartition(F.zerocopy_to_dgl_ndarray(id_tensor),
+                                                          F.zerocopy_to_dgl_ndarray(part_id),
+                                                          machine_id)
+    global_id = F.zerocopy_from_dgl_ndarray(global_id)
+    g2l_id = policy.to_local(global_id)
+    future_handler = _CAPI_DGLRPCAsyncPull(name,
+                                           int(machine_id),
+                                           int(machine_count),
+                                           int(group_count),
+                                           int(client_id),
+                                           int(service_id),
+                                           int(msg_seq),
+                                           pickle_data,
+                                           F.zerocopy_to_dgl_ndarray(id_tensor),
+                                           F.zerocopy_to_dgl_ndarray(part_id),
+                                           F.zerocopy_to_dgl_ndarray(g2l_id),
+                                           F.zerocopy_to_dgl_ndarray(local_data))
+    shape = list(local_data.shape)
+    shape[0] = F.shape(id_tensor)[0]
+    return Future(future_handler, shape, F.dtype(local_data))
+
+def wait(future_list, out_tensor_list):
+    """wait() api used by kvclient.
+
+    Parameters
+    ----------
+    future_list : list of Future
+        A list of Future objects that can be waited on.
+    out_tensor_list : list of tensor
+        A list of tensor that save pulled data.
+
+    Returns
+    -------
+    A list of tensor
+    """
+    tensor_list = []
+    ptr_list = []
+    # Get future pointer
+    for fut in future_list:
+        ptr_list.append(fut.handler)
+    # Get output tensor
+    if out_tensor_list is not None:
+        for i, _ in enumerate(future_list):
+            assert list(out_tensor_list[i].shape) == future_list[i].shape
+            assert F.dtype(out_tensor_list[i]) == future_list[i].dtype
+        for out in out_tensor_list:
+            tensor_list.append(F.zerocopy_to_dgl_ndarray(out))
+        res = _CAPIRPCAsyncPullWait(ptr_list, True, tensor_list)
+    else:
+        res = _CAPIRPCAsyncPullWait(ptr_list, False)
+    res_tensor = []
+    for i, _ in enumerate(res):
+        res_tensor.append(F.zerocopy_from_dgl_ndarray(res[i]))
+    return res_tensor
 
 def register_ctrl_c():
     """HandleCtrlC Register for handling Ctrl+C event.

@@ -7,6 +7,7 @@ from .kvstore import get_kvstore
 from .role import get_role
 from .. import utils
 from .. import backend as F
+from ..cache import Cache
 
 def _get_data_name(name, part_policy):
     ''' This is to get the name of data in the kvstore.
@@ -20,6 +21,39 @@ def _default_init_data(shape, dtype):
 
 # These Ids can identify the anonymous distributed tensors.
 DIST_TENSOR_ID = 0
+
+class Future:
+    '''Future wrapper that combines data from KVStore future and cache future.
+
+    Parameters
+    ----------
+    kv_future : Future
+        The KVStore future
+    ids : 1D tensor
+        The Ids of data referenced by the cache future.
+    cache_future : Future
+        The cache future.
+    '''
+    def __init__(self, kv_future, ids, cache_future):
+        self._kv_future = kv_future
+        self._ids = ids
+        self._cache_future = cache_future
+
+    def get_kv_future(self):
+        '''Get the kvstore future.
+        '''
+        return self._kv_future
+
+    def __call__(self):
+        kv_data = self._kv_future()
+        assert kv_data is not None
+        if self._cache_future is None:
+            return kv_data
+        else:
+            data = self._cache_future()
+            data[self._ids < 0] = kv_data.to(data.device)
+            return data
+
 
 class DistTensor:
     ''' Distributed tensor.
@@ -158,6 +192,8 @@ class DistTensor:
             assert dtype == dtype1, 'The dtype does not match with the existing tensor'
             assert shape == shape1, 'The shape does not match with the existing tensor'
 
+        self._gpu_cache = None
+
     def __del__(self):
         initialized = os.environ.get('DGL_DIST_MODE', 'standalone') == 'standalone' \
                 or is_initialized()
@@ -167,9 +203,20 @@ class DistTensor:
     def __getitem__(self, idx):
         idx = utils.toindex(idx)
         idx = idx.tousertensor()
-        return self.kvstore.pull(name=self._name, id_tensor=idx)
+        if self._gpu_cache is None:
+            return self.kvstore.pull(name=self._name, id_tensor=idx)
+        else:
+            # Read data from GPU cache.
+            out_idx, out_data = self._gpu_cache.lookup(idx, filtered=False, lazy=False)
+            # Pull remaining data from KVStore.
+            kv_data = self.kvstore.pull(name=self._name, id_tensor=idx[out_idx < 0])
+            # Merge the data from the GPU cache and from KVStore.
+            out_data[out_idx < 0] = kv_data.to(out_data.device)
+            return out_data
 
     def __setitem__(self, idx, val):
+        # TODO(zhengda) setting data doesn't work with cache.
+        assert self._gpu_cache is None
         idx = utils.toindex(idx)
         idx = idx.tousertensor()
         # TODO(zhengda) how do we want to support broadcast (e.g., G.ndata['h'][idx] = 1).
@@ -177,6 +224,21 @@ class DistTensor:
 
     def __len__(self):
         return self._shape[0]
+
+    def init_cache(self, cache_size, cache_nodes, cache_priority, device):
+        '''This initializes GPU cache for the tensor.
+        '''
+        cache_nodes = utils.toindex(cache_nodes)
+        cache_nodes = cache_nodes.tousertensor()
+        self._gpu_cache = Cache(cache_size, self.shape, self.dtype, device, 'GPU cache')
+        cache_data = self.__getitem__(cache_nodes)
+        idx = F.sort_1d(-cache_priority)[1]
+        cache_nodes = cache_nodes[idx]
+        cache_data = cache_data[idx]
+        self._gpu_cache.add_data(cache_nodes, cache_data)
+        occ_per = self._gpu_cache.get_num_occupied_entries() / self._gpu_cache.get_cache_size()
+        print('GPU cache size: {}, {:.3f} % is used'.format(self._gpu_cache.get_cache_size(),
+                                                            occ_per * 100))
 
     @property
     def part_policy(self):
@@ -221,3 +283,32 @@ class DistTensor:
             The name of the tensor.
         '''
         return self._name
+
+    def prefetch(self, idx):
+        """Prefect data from distrubuted tensor
+
+        Parameters
+        ----------
+        idx : tensor
+            data index
+
+        Returns
+        -------
+        Future
+            A future object that can be waited on
+        """
+        if self._gpu_cache is not None:
+            out_idx, out_data = self._gpu_cache.lookup(idx, filtered=False, lazy=True)
+            # We only need to fetch data that don't exist in the GPU cache.
+            idx = idx[out_idx < 0]
+        else:
+            out_idx = None
+            out_data = None
+        fut = self.kvstore.async_pull([self.name], [idx])
+        return Future(fut[0], out_idx, out_data)
+
+    def print_cache_stats(self):
+        '''Print cache statistics.
+        '''
+        if self._gpu_cache is not None:
+            self._gpu_cache.print_stats()

@@ -85,6 +85,21 @@ def check_dist_graph(g, num_clients, num_nodes, num_edges):
     feats = F.squeeze(feats1, 1)
     assert np.all(F.asnumpy(feats == nids))
 
+    # Test reading node data with cache
+    cache_size = g.number_of_nodes() // 10
+    cache_nodes = np.random.choice(g.number_of_nodes(), cache_size * 2, replace=False)
+    g.ndata['features'].init_cache(cache_size, cache_nodes,
+                                   F.ones((len(cache_nodes),), F.int32, F.cpu()), F.cpu())
+    feats1 = g.ndata['features'][nids]
+    feats = F.squeeze(feats1, 1)
+    assert np.all(F.asnumpy(feats == nids))
+    g.ndata['features'].print_cache_stats()
+
+    feats1 = g.ndata['features'].prefetch(nids)
+    feats1 = g.wait([feats1])[0]
+    feats = F.squeeze(feats1, 1)
+    assert np.all(F.asnumpy(feats == nids))
+
     # Test reading edge data
     eids = F.arange(0, int(g.number_of_edges() / 2))
     feats1 = g.edata['features'][eids]
@@ -359,10 +374,10 @@ def test_split_even():
         set_roles(num_parts * 2)
         nodes1 = node_split(node_mask, gpb, i * 2, force_even=True)
         nodes2 = node_split(node_mask, gpb, i * 2 + 1, force_even=True)
-        nodes3 = F.cat([nodes1, nodes2], 0)
+        nodes3, _ = F.sort_1d(F.cat([nodes1, nodes2], 0))
         all_nodes2.append(nodes3)
         subset = np.intersect1d(F.asnumpy(nodes), F.asnumpy(nodes3))
-        print('intersection has', len(subset))
+        print('intersection of {} and {} has {}'.format(len(nodes), len(nodes3), len(subset)))
 
         set_roles(num_parts)
         local_eids = F.nonzero_1d(part_g.edata['inner_edge'])
@@ -375,7 +390,7 @@ def test_split_even():
         set_roles(num_parts * 2)
         edges1 = edge_split(edge_mask, gpb, i * 2, force_even=True)
         edges2 = edge_split(edge_mask, gpb, i * 2 + 1, force_even=True)
-        edges3 = F.cat([edges1, edges2], 0)
+        edges3, _ = F.sort_1d(F.cat([edges1, edges2], 0))
         all_edges2.append(edges3)
         subset = np.intersect1d(F.asnumpy(edges), F.asnumpy(edges3))
         print('intersection has', len(subset))

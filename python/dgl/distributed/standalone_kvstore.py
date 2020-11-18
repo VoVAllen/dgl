@@ -3,6 +3,8 @@
 This kvstore is used when running in the standalone mode
 """
 
+from functools import partial
+
 from .. import backend as F
 from .graph_partition_book import PartitionPolicy, NODE_PART_POLICY, EDGE_PART_POLICY
 
@@ -55,6 +57,21 @@ class KVClient(object):
     def get_data_meta(self, name):
         '''get the metadata of data'''
         return F.dtype(self._data[name]), F.shape(self._data[name]), None
+
+    def async_pull(self, name_list, id_tensor_list):
+        '''Async pull
+        '''
+        outs = []
+        def fn(name, id_tensor):
+            return self.pull(name, id_tensor)
+        for name, id_tensor in zip(name_list, id_tensor_list):
+            outs.append(partial(fn, name, id_tensor))
+        return outs
+
+    def wait(self, future_list):
+        '''Wait for futures.
+        '''
+        return future_list
 
     def push(self, name, id_tensor, data_tensor):
         '''push data to kvstore'''

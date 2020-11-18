@@ -1243,6 +1243,74 @@ class KVClient(object):
         """
         return elem.server_id
 
+    def async_pull(self, name_list, id_tensor_list):
+        """Pull message from KVServer in an asynchronous way.
+
+        For many cases, users may want asynchronous pull to speedup the training.
+        Using async_pull, users can issue a set of pull requests to the kvserver, and
+        then go back to the other work, instead of waiting on the socket. The async_pull
+        will return a set of Future objects that can be wait on. Once the message coming
+        back from the server, the kv.wait() api will return the real data to users.
+
+        Parameters
+        ----------
+        name_list : list of str
+            data name list
+        id_tensor_list : list of tensor
+            a list of tensor storing the data ID
+
+        Returns
+        -------
+        list of Future
+            A list of Future object that can be waited on.
+        """
+        assert len(name_list) == len(id_tensor_list)
+        future_list = []
+        for i, name in enumerate(name_list):
+            assert len(name) > 0, 'name cannot be empty.'
+            id_tensor = utils.toindex(id_tensor_list[i])
+            id_tensor = id_tensor.tousertensor()
+            assert F.ndim(id_tensor) == 1, 'ID must be a vector.'
+            if self._pull_handlers[name] is default_pull_handler: # Use fast code in C++
+                part_id = self._part_policy[name].to_partid(id_tensor)
+                future = rpc.async_pull(name, id_tensor, part_id, KVSTORE_PULL,
+                                        self._machine_count,
+                                        self._group_count,
+                                        self._machine_id,
+                                        self._client_id,
+                                        self._data_store[name],
+                                        self._part_policy[name])
+                future_list.append(future)
+            else:
+                raise RuntimeError('async_pull for udf pull handler is not implemented yet.')
+
+        return future_list
+
+    def wait(self, future_list, out_tensor_list=None):
+        """Wait on a list of future objects for the real data coming back from kvserver.
+        This API will be blocked until all the future objects get their data.
+
+        Parameters
+        ----------
+        future_list : list of Future
+            A list of Future objects that can be waited on.
+        out_tensor_list : list of tensors
+            A list of tensor that saves pulled data.
+
+        Returns
+        -------
+        list of tensor
+            A list of tensor with the same order of future_list
+        """
+        assert len(future_list) > 0, 'future_list cannot be empty.'
+        if out_tensor_list is not None:
+            assert len(future_list) == len(out_tensor_list)
+        tensor_list = rpc.wait(future_list, out_tensor_list)
+        for future, tensor in zip(future_list, tensor_list):
+            future.set_data(tensor)
+        assert len(tensor_list) == len(future_list)
+        return tensor_list
+
 KVCLIENT = None
 
 def init_kvstore(ip_config, num_servers, role):

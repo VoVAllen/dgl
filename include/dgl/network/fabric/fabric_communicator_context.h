@@ -32,7 +32,6 @@ class FabricCommunicatorContext {
       if (tag == kSizeMsg) {
         CHECK(cq_entry.len == sizeof(int64_t)) << "Invalid size message";
         int64_t data_size = *(int64_t*)cq_entry.buf;
-        free(cq_entry.buf);  // Free size buffer
         char* buffer = nullptr;
         if (data_size == 0) {  // Indicate receiver should exit
           return false;
@@ -43,6 +42,7 @@ class FabricCommunicatorContext {
           LOG(FATAL) << "Cannot allocate enough memory for message, "
                      << "(message size: " << data_size << ")";
         }
+        free(cq_entry.buf);  // Free size buffer
         // Receive from specific sender
         fep->Recv(buffer, data_size, kDataMsg | sender_id,
                   FI_ADDR_UNSPEC, false, ~(MsgTagMask | SenderIdMask));

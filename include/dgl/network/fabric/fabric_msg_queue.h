@@ -36,6 +36,7 @@ class FabricMessageQueue {
    * \return Status code
    */
   STATUS Add(Message* msg, int64_t id) {
+    // LOG(INFO) << "Add " << id << " to: " << this;
     queue_[id] = msg;
     return ADD_SUCCESS;
   };
@@ -56,6 +57,7 @@ class FabricMessageQueue {
       *msg = *msg_in_queue;
       queue_[current_idx] = nullptr;
       delete msg_in_queue;
+    //   LOG(INFO) << "Remove " << current_idx << " from: " << this;
       current_idx = (current_idx + 1) & 0xFFFF;
       return REMOVE_SUCCESS;
     } else {

@@ -28,6 +28,7 @@ class FabricCommunicatorContext {
       }
     } else {
       uint64_t tag = cq_entry.tag & MsgTagMask;
+      uint64_t sender_id = cq_entry.tag & SenderIdMask;
       if (tag == kSizeMsg) {
         CHECK(cq_entry.len == sizeof(int64_t)) << "Invalid size message";
         int64_t data_size = *(int64_t*)cq_entry.buf;
@@ -43,20 +44,19 @@ class FabricCommunicatorContext {
                      << "(message size: " << data_size << ")";
         }
         // Receive from specific sender
-        fep->Recv(buffer, data_size, kDataMsg | (cq_entry.tag & SenderIdMask),
-                  FI_ADDR_UNSPEC, false, 0xFFFFFFFF00000000);
+        fep->Recv(buffer, data_size, kDataMsg | sender_id,
+                  FI_ADDR_UNSPEC, false, ~(MsgTagMask | SenderIdMask));
       } else if (tag == kDataMsg) {
         Message* msg = new Message();
         msg->data = reinterpret_cast<char*>(cq_entry.buf);
         msg->size = cq_entry.len;
         msg->deallocator = DefaultMessageDeleter;
-        msg_queue_->at((cq_entry.tag & SenderIdMask))
+        msg_queue_->at(sender_id)
           ->Add(msg, ((cq_entry.tag & MsgIdMask) >> 32));
         int64_t* size_buffer =
           new int64_t;  // can be optimized with buffer pool
-        fep->Recv(size_buffer, sizeof(int64_t),
-                  kSizeMsg, FI_ADDR_UNSPEC,
-                  false, 0xFFFFFFFF0000FFFF);  // can use FI_ADDR_UNSPEC flag
+        fep->Recv(size_buffer, sizeof(int64_t), kSizeMsg, FI_ADDR_UNSPEC, false,
+                  ~MsgTagMask);  // can use FI_ADDR_UNSPEC flag
       } else {
         if (tag != kIgnoreMsg) {
           LOG(INFO) << "Invalid tag";

@@ -47,6 +47,7 @@ bool FabricSender::Connect() {
                   true);
     peer_fi_addr[kv.first] = fep->AddPeerAddr(&addrs.addr);
     sender_id = addrs.sender_id;
+    msg_ids[kv.first] = 0;
     // msg_queue_[kv.first] = std::make_shared<MessageQueue>(queue_size_);
   }
   FabricCommunicatorContext::StartPolling();
@@ -59,11 +60,11 @@ STATUS FabricSender::Send(Message msg, int recv_id) {
   CHECK_GE(recv_id, 0);
   Message* msg_copy = new Message();
   *msg_copy = msg;
-  fep->Send(&msg.size, sizeof(msg.size), (msg_id << 32) | kSizeMsg | sender_id,
+  fep->Send(&msg.size, sizeof(msg.size), (msg_ids[recv_id] << 32) | kSizeMsg | sender_id,
             peer_fi_addr[recv_id]);
-  fep->Send(msg.data, msg.size, (msg_id << 32) | kDataMsg | sender_id,
+  fep->Send(msg.data, msg.size, (msg_ids[recv_id] << 32) | kDataMsg | sender_id,
             peer_fi_addr[recv_id], false, msg_copy);
-  msg_id = (msg_id + 1) & 0xFFFF;
+  msg_ids[recv_id] = (msg_ids[recv_id] + 1) & 0xFFFF;
   return ADD_SUCCESS;
 }
 }  // namespace network

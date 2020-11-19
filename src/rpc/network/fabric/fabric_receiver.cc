@@ -27,16 +27,18 @@ bool FabricReceiver::Wait(const char* addr, int num_sender) {
     ctrl_ep->Send(&info, sizeof(FabricAddrInfo), kFiAddrMsg,
                   ctrl_peer_fi_addr[i],
                   true);  // Send back server address
-    msg_queue_->insert({i, std::make_shared<MessageQueue>(queue_size_)});
+    msg_queue_->insert({i, std::make_shared<FabricMessageQueue>()});
   }
-  for (auto& kv : peer_fi_addr) {
+  for (size_t i = 0; i < peer_fi_addr.size() * 4; i++)
+  {
     // can be optimized with buffer pool
     // Will be freed in HandleCompletionEvent
     int64_t* size_buffer = new int64_t;
     // Issue recv events
-    fep->Recv(size_buffer, sizeof(int64_t), kSizeMsg | kv.first,
-              FI_ADDR_UNSPEC);
+    fep->Recv(size_buffer, sizeof(int64_t), kSizeMsg, FI_ADDR_UNSPEC, false,
+              0xFFFFFFFF0000FFFF);
   }
+
   FabricCommunicatorContext::StartPolling();
 
   return true;
@@ -48,7 +50,7 @@ STATUS FabricReceiver::Recv(Message* msg, int* send_id) {
     for (auto& mq : *msg_queue_) {
       *send_id = mq.first;
       // We use non-block remove here
-      STATUS code = msg_queue_->at(*send_id)->Remove(msg, false);
+      STATUS code = msg_queue_->at(*send_id)->Remove(msg);
       if (code == QUEUE_EMPTY) {
         continue;  // jump to the next queue
       } else {
@@ -61,7 +63,10 @@ STATUS FabricReceiver::Recv(Message* msg, int* send_id) {
 
 STATUS FabricReceiver::RecvFrom(Message* msg, int send_id) {
   // Get message from specified message queue
-  STATUS code = msg_queue_->at(send_id)->Remove(msg);
+  STATUS code = QUEUE_EMPTY;
+  while (code != REMOVE_SUCCESS) {
+    code = msg_queue_->at(send_id)->Remove(msg);
+  }
   return code;
 }
 
@@ -69,13 +74,13 @@ void FabricReceiver::Finalize() {
   // Send a signal to tell the message queue to finish its job
   for (auto& mq : *msg_queue_) {
     // wait until queue is empty
-    while (mq.second->Empty() == false) {
-#ifdef _WIN32
-      // just loop
-#else   // !_WIN32
-      usleep(1000);
-#endif  // _WIN32
-    }
+    //     while (mq.second->Empty() == false) {
+    // #ifdef _WIN32
+    //       // just loop
+    // #else  // !_WIN32
+    //       usleep(1000);
+    // #endif  // _WIN32
+    //     }
     int ID = mq.first;
     mq.second->SignalFinished(ID);
   }

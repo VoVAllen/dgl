@@ -16,10 +16,10 @@ namespace network {
 class FabricCommunicatorContext {
   static bool HandleCompletionEvent(const struct fi_cq_tagged_entry& cq_entry,
                                     FabricEndpoint* fep, QueueMap* msg_queue_) {
-    uint64_t tag = cq_entry.tag & MsgTagMask;
     uint64_t flags = cq_entry.flags;
     if ((flags & FI_SEND) == FI_SEND) {
-      if ((cq_entry.op_context) and ((cq_entry.tag & IdMask) == kDataMsg)) {
+      if ((cq_entry.op_context) and
+          ((cq_entry.tag & SenderIdMask) == kDataMsg)) {
         Message* msg_ptr = reinterpret_cast<Message*>(cq_entry.op_context);
         if (msg_ptr->deallocator != nullptr) {
           msg_ptr->deallocator(msg_ptr);
@@ -27,6 +27,7 @@ class FabricCommunicatorContext {
         delete msg_ptr;
       }
     } else {
+      uint64_t tag = cq_entry.tag & MsgTagMask;
       if (tag == kSizeMsg) {
         CHECK(cq_entry.len == sizeof(int64_t)) << "Invalid size message";
         int64_t data_size = *(int64_t*)cq_entry.buf;
@@ -42,19 +43,20 @@ class FabricCommunicatorContext {
                      << "(message size: " << data_size << ")";
         }
         // Receive from specific sender
-        fep->Recv(buffer, data_size, kDataMsg | (cq_entry.tag & IdMask),
-                  FI_ADDR_UNSPEC, false);
+        fep->Recv(buffer, data_size, kDataMsg | (cq_entry.tag & SenderIdMask),
+                  FI_ADDR_UNSPEC, false, 0xFFFFFFFF00000000);
       } else if (tag == kDataMsg) {
-        Message msg;
-        msg.data = reinterpret_cast<char*>(cq_entry.buf);
-        msg.size = cq_entry.len;
-        msg.deallocator = DefaultMessageDeleter;
-        msg_queue_->at((cq_entry.tag & IdMask))->Add(msg);
+        Message* msg = new Message();
+        msg->data = reinterpret_cast<char*>(cq_entry.buf);
+        msg->size = cq_entry.len;
+        msg->deallocator = DefaultMessageDeleter;
+        msg_queue_->at((cq_entry.tag & SenderIdMask))
+          ->Add(msg, ((cq_entry.tag & MsgIdMask) >> 32));
         int64_t* size_buffer =
           new int64_t;  // can be optimized with buffer pool
         fep->Recv(size_buffer, sizeof(int64_t),
-                  kSizeMsg | (cq_entry.tag & IdMask), FI_ADDR_UNSPEC,
-                  false);  // can use FI_ADDR_UNSPEC flag
+                  kSizeMsg, FI_ADDR_UNSPEC,
+                  false, 0xFFFFFFFF0000FFFF);  // can use FI_ADDR_UNSPEC flag
       } else {
         if (tag != kIgnoreMsg) {
           LOG(INFO) << "Invalid tag";

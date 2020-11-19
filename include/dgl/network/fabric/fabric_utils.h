@@ -1,7 +1,7 @@
 #pragma once
 
 #include <arpa/inet.h>
-#include <dgl/network/msg_queue.h>
+#include <dgl/network/fabric/fabric_msg_queue.h>
 #include <dmlc/logging.h>
 #include <inttypes.h>
 #include <netinet/in.h>
@@ -29,7 +29,7 @@
 namespace dgl {
 namespace network {
 
-typedef std::unordered_map<int, std::shared_ptr<MessageQueue>> QueueMap;
+typedef std::unordered_map<int, std::shared_ptr<FabricMessageQueue>> QueueMap;
 
 enum FabricMsgTag : uint64_t {
   kSizeMsg = 0x0000000000010000,
@@ -39,8 +39,9 @@ enum FabricMsgTag : uint64_t {
   kIgnoreMsg = 0x0000000000050000,
 };
 
-static const uint64_t MsgTagMask = 0x00000000FFFF0000;
-static const uint64_t IdMask = 0x000000000000FFFF;
+static const uint64_t MsgTagMask   = 0x00000000FFFF0000;
+static const uint64_t SenderIdMask = 0x000000000000FFFF;
+static const uint64_t MsgIdMask    = 0x0000FFFF00000000;
 
 static const int FABRIC_VERSION = FI_VERSION(1, 10);
 

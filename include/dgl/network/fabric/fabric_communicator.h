@@ -97,6 +97,8 @@ class FabricSender : public Sender {
   // ~FabricSender() override { Finalize(); }
 
  private:
+  int64_t msg_id = 0;
+
   uint64_t sender_id;
 
   std::shared_ptr<std::thread> poll_thread;

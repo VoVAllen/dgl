@@ -29,7 +29,7 @@ bool FabricReceiver::Wait(const char* addr, int num_sender) {
                   true);  // Send back server address
     msg_queue_->insert({i, std::make_shared<FabricMessageQueue>()});
   }
-  for (size_t i = 0; i < peer_fi_addr.size() * 4; i++)
+  for (size_t i = 0; i < peer_fi_addr.size() * 8; i++)
   {
     // can be optimized with buffer pool
     // Will be freed in HandleCompletionEvent

@@ -27,6 +27,7 @@ class FabricCommunicatorContext {
         delete msg_ptr;
       }
     } else {
+      CHECK_EQ((flags & FI_RECV), FI_RECV);
       uint64_t tag = cq_entry.tag & MsgTagMask;
       uint64_t sender_id = cq_entry.tag & SenderIdMask;
       if (tag == kSizeMsg) {

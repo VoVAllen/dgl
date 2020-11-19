@@ -98,7 +98,7 @@ class FabricSender : public Sender {
 
  private:
   // int64_t msg_id = 0;
-  std::unordered_map<int /* receiver ID */, int64_t> msg_ids;
+  std::unordered_map<int /* receiver ID */, uint64_t> msg_ids;
 
   uint64_t sender_id;
 

@@ -53,8 +53,8 @@ class FabricProvider {
     UniqueFabricPtr<struct fi_info> hints(fi_allocinfo());
     hints->ep_attr->type = FI_EP_RDM;  // Reliable Datagram
     hints->caps = FI_TAGGED | FI_MSG | FI_DIRECTED_RECV | FI_SOURCE;
-    hints->domain_attr->threading = FI_THREAD_COMPLETION;
-    hints->mode = FI_CONTEXT;
+    // hints->domain_attr->threading = FI_THREAD_COMPLETION;
+    // hints->mode = FI_CONTEXT;
     hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
     hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
     hints->addr_format = FI_SOCKADDR_IN;

@@ -33,9 +33,9 @@ class FabricCommunicatorContext {
       uint64_t sender_id = cq_entry.tag & SenderIdMask;
       if (tag == kSizeMsg) {
         CHECK(cq_entry.len == sizeof(int64_t)) << "Invalid size message";
-        LOG(INFO) << "recved size: " << *(int64_t*)cq_entry.buf;
+        // LOG(INFO) << "recved size: " << *(int64_t*)cq_entry.buf;
         int64_t data_size = *(int64_t*)cq_entry.buf;
-        LOG(INFO) << "data size: " << data_size;
+        // LOG(INFO) << "data size: " << data_size;
         char* buffer = nullptr;
         if (data_size == 0) {  // Indicate receiver should exit
           return false;

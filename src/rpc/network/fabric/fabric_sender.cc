@@ -60,7 +60,7 @@ STATUS FabricSender::Send(Message msg, int recv_id) {
   CHECK_GE(recv_id, 0);
   Message* msg_copy = new Message();
   *msg_copy = msg;
-  LOG(INFO) << "Send Size: "<< msg_copy->size;
+  // LOG(INFO) << "Send Size: "<< msg_copy->size;
   fep->Send(&msg_copy->size, sizeof(msg_copy->size), (msg_ids[recv_id] << 32) | kSizeMsg | sender_id,
             peer_fi_addr[recv_id]);
   fep->Send(msg_copy->data, msg_copy->size, (msg_ids[recv_id] << 32) | kDataMsg | sender_id,

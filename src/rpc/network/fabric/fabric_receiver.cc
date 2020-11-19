@@ -33,7 +33,7 @@ bool FabricReceiver::Wait(const char* addr, int num_sender) {
   {
     // can be optimized with buffer pool
     // Will be freed in HandleCompletionEvent
-    int64_t* size_buffer = new int64_t(-99);
+    int64_t* size_buffer = new int64_t;
     // Issue recv events
     fep->Recv(size_buffer, sizeof(int64_t), kSizeMsg, FI_ADDR_UNSPEC, false,
               ~MsgTagMask);

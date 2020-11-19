@@ -48,6 +48,7 @@ class FabricCommunicatorContext {
         }
         // TODO
         // free(cq_entry.buf);  // Free size buffer
+        delete (int64_t*)cq_entry.buf;
         // Receive from specific sender
         fep->Recv(buffer, data_size, kDataMsg | sender_id,
                   FI_ADDR_UNSPEC, false, ~(MsgTagMask | SenderIdMask));

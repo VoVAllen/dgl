@@ -46,7 +46,8 @@ class FabricCommunicatorContext {
           LOG(FATAL) << "Cannot allocate enough memory for message, "
                      << "(message size: " << data_size << ")";
         }
-        free(cq_entry.buf);  // Free size buffer
+        // TODO
+        // free(cq_entry.buf);  // Free size buffer
         // Receive from specific sender
         fep->Recv(buffer, data_size, kDataMsg | sender_id,
                   FI_ADDR_UNSPEC, false, ~(MsgTagMask | SenderIdMask));

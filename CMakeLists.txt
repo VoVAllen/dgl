@@ -28,6 +28,7 @@ dgl_option(BUILD_CPP_TEST "Build cpp unittest executables" OFF)
 dgl_option(LIBCXX_ENABLE_PARALLEL_ALGORITHMS "Enable the parallel algorithms library. This requires the PSTL to be available." OFF)
 dgl_option(USE_S3 "Build with S3 support" OFF)
 dgl_option(USE_HDFS "Build with HDFS support" OFF) # Set env HADOOP_HDFS_HOME if needed
+dgl_option(USE_PARMETIS "Build with PARMETIS support" OFF)
 
 # Set debug compile option for gdb, only happens when -DCMAKE_BUILD_TYPE=DEBUG
 if (NOT MSVC)
@@ -169,6 +170,28 @@ if(NOT MSVC)
   add_subdirectory("third_party/METIS/libmetis/")
   list(APPEND DGL_LINKER_LIBS metis)
 endif(NOT MSVC)
+
+if(USE_PARMETIS)
+  include(FindMPI)
+  if(NOT MPI_FOUND)
+    message(FATAL_ERROR "mpi is not found")
+  endif()
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MPI_COMPILE_FLAGS}")
+  MESSAGE(STATUS "MPI Flag: ${MPI_COMPILE_FLAGS}")
+  MESSAGE(STATUS "MPI Include Path: ${MPI_CXX_INCLUDE_PATH}")
+  include_directories(${MPI_C_INCLUDE_PATH})
+  # include_directories("third_party/parmetis/include")
+  set(GKLIB_PATH "${CMAKE_SOURCE_DIR}/third_party/parmetis/metis/GKlib")
+  include(${GKLIB_PATH}/GKlibSystem.cmake)
+  include_directories(${GKLIB_PATH})
+  set(METIS_PATH "${CMAKE_SOURCE_DIR}/third_party/parmetis/metis")
+  add_subdirectory("third_party/parmetis/")
+  # add_subdirectory(${METIS_PATH}/libmetis ${CMAKE_BINARY_DIR}/libmetis)
+  # add_subdirectory("third_party/parmetis/libparmetis")
+  list(APPEND DGL_LINKER_LIBS libparmetis)
+endif(USE_PARMETIS)
+
+
 
 # support PARALLEL_ALGORITHMS
 if (LIBCXX_ENABLE_PARALLEL_ALGORITHMS)
